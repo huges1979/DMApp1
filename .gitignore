@@ -7,6 +7,12 @@
 /captures
 .externalNativeBuild
 .cxx
+*.apk
+*.aab
+/app/release
+/app/debug
+/app/build
+/app/src/main/assets/markers
 local.properties
 /app/build/
 .idea/
