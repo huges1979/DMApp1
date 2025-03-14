@@ -16,6 +16,15 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven {
+            url = uri("https://maven.google.com/")
+        }
+        maven {
+            url = uri("https://artifact.bytedance.com/repository/pangle")
+        }
+        maven {
+            url = uri("https://maven.yandex.ru/")
+        }
     }
 }
 

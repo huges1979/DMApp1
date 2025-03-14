@@ -42,7 +42,6 @@ android {
 }
 
 dependencies {
-
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
@@ -70,11 +69,8 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended:1.6.3")
     implementation("androidx.compose.material:material-icons-core:1.6.3")
     
-    // Yandex Maps
-    implementation("com.yandex.android:maps.mobile:4.4.0-lite")
-    
-    // Yandex MapKit
-    implementation("com.yandex.android:maps.mobile:4.4.0-lite")
+    // Yandex MapKit (full version with search)
+    implementation("com.yandex.android:maps.mobile:4.4.0-full")
     
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

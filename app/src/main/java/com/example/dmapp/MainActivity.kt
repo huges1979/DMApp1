@@ -34,10 +34,18 @@ import com.example.dmapp.ui.screens.MainScreen
 import com.example.dmapp.ui.screens.MapScreen
 import com.example.dmapp.ui.screens.OrderDetailScreen
 import com.yandex.mapkit.MapKitFactory
+import com.yandex.mapkit.search.SearchFactory
 
 class App : Application() {
     override fun onCreate() {
         super.onCreate()
+        try {
+            MapKitFactory.setApiKey("2a96384f-ba39-4724-b534-2cb3097f3e0d")
+            MapKitFactory.initialize(this)
+            SearchFactory.initialize(this)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 }
 
@@ -120,13 +128,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
+    override fun onStart() {
+        super.onStart()
+        try {
+            MapKitFactory.getInstance().onStart()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    override fun onStop() {
         try {
             MapKitFactory.getInstance().onStop()
         } catch (e: Exception) {
             e.printStackTrace()
         }
+        super.onStop()
     }
 }
 
