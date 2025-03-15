@@ -28,10 +28,7 @@ class OrderRepository(private val orderDao: OrderDao) {
             try {
                 val searchSession = searchManager.submit(
                     address,
-                    Geometry.fromBoundingBox(BoundingBox(
-                        Point(55.751574, 37.573856), // Москва
-                        Point(55.751574, 37.573856)
-                    )),
+                    Geometry.fromPoint(Point(55.751574, 37.573856)),
                     SearchOptions(),
                     object : Session.SearchListener {
                         override fun onSearchResponse(response: Response) {
@@ -56,55 +53,68 @@ class OrderRepository(private val orderDao: OrderDao) {
         var newOrders = 0
         var duplicates = 0
         
-        // Get the current max order number
+        // Получаем текущий максимальный номер заказа
         val currentMaxOrderNumber = orderDao.getMaxOrderNumber() ?: 0
         var nextOrderNumber = currentMaxOrderNumber + 1
 
-        // Split text into individual orders
-        val orders = text.split("\n\n").filter { it.trim().startsWith("Заказ") }
+        // Разбиваем текст на отдельные заказы и создаем временный список
+        val ordersToImport = mutableListOf<Order>()
+        
+        // Сначала собираем все заказы и проверяем на дубликаты
+        text.split("\n\n")
+            .filter { it.trim().startsWith("Заказ") }
+            .forEach { orderText ->
+                val orderMap = parseOrderText(orderText)
+                val externalOrderNumber = orderMap["orderNumber"] ?: return@forEach
 
-        orders.forEach { orderText ->
-            val orderMap = parseOrderText(orderText)
-            val externalOrderNumber = orderMap["orderNumber"] ?: return@forEach
-
-            val existingOrder = orderDao.findDuplicateOrder(externalOrderNumber)
-            if (existingOrder == null) {
-                // Parse delivery time interval
-                val (startTime, endTime) = parseDeliveryInterval(orderMap["deliveryInterval"] ?: "")
-                
-                // Geocode the delivery address
-                val deliveryAddress = orderMap["deliveryAddress"] ?: ""
-                val coordinates = geocodeAddress(deliveryAddress)
-                
-                // Create new order
-                val order = Order(
-                    orderNumber = nextOrderNumber,
-                    externalOrderNumber = externalOrderNumber,
-                    pickupLocation = orderMap["pickupLocation"] ?: "",
-                    sector = orderMap["sector"] ?: "",
-                    place = orderMap["place"] ?: "",
-                    clientPhone = orderMap["clientPhone"] ?: "",
-                    clientName = orderMap["clientName"] ?: "",
-                    deliveryAddress = deliveryAddress,
-                    clientComment = orderMap["clientComment"],
-                    deliveryTimeStart = startTime,
-                    deliveryTimeEnd = endTime,
-                    weight = orderMap["weight"]?.replace(" кг", "")?.toDoubleOrNull() ?: 0.0,
-                    volume = orderMap["volume"]?.replace(" м³", "")?.toDoubleOrNull() ?: 0.0,
-                    isPrepaid = orderMap["isPrepaid"]?.contains("Да") ?: false,
-                    courierName = orderMap["courierName"] ?: "",
-                    courierPhone = orderMap["courierPhone"] ?: "",
-                    orderAmount = orderMap["orderAmount"]?.replace("[^0-9.]".toRegex(), "")?.toDoubleOrNull() ?: 0.0,
-                    latitude = coordinates?.latitude,
-                    longitude = coordinates?.longitude
-                )
-                
-                orderDao.insert(order)
-                newOrders++
-                nextOrderNumber++
-            } else {
-                duplicates++
+                // Проверяем на дубликаты
+                val existingOrder = orderDao.findDuplicateOrder(externalOrderNumber)
+                if (existingOrder == null) {
+                    // Парсим время доставки
+                    val (startTime, endTime) = parseDeliveryInterval(orderMap["deliveryInterval"] ?: "")
+                    
+                    // Геокодируем адрес
+                    val deliveryAddress = orderMap["deliveryAddress"] ?: ""
+                    val coordinates = geocodeAddress(deliveryAddress)
+                    
+                    // Создаем новый заказ (пока без номера)
+                    val order = Order(
+                        orderNumber = 0, // Временный номер
+                        externalOrderNumber = externalOrderNumber,
+                        pickupLocation = orderMap["pickupLocation"] ?: "",
+                        sector = orderMap["sector"] ?: "",
+                        place = orderMap["place"] ?: "",
+                        clientPhone = orderMap["clientPhone"] ?: "",
+                        clientName = orderMap["clientName"] ?: "",
+                        deliveryAddress = deliveryAddress,
+                        clientComment = orderMap["clientComment"],
+                        deliveryTimeStart = startTime,
+                        deliveryTimeEnd = endTime,
+                        weight = orderMap["weight"]?.replace(" кг", "")?.toDoubleOrNull() ?: 0.0,
+                        volume = orderMap["volume"]?.replace(" м³", "")?.toDoubleOrNull() ?: 0.0,
+                        isPrepaid = orderMap["isPrepaid"]?.contains("Да") ?: false,
+                        courierName = orderMap["courierName"] ?: "",
+                        courierPhone = orderMap["courierPhone"] ?: "",
+                        orderAmount = orderMap["orderAmount"]?.replace("[^0-9.]".toRegex(), "")?.toDoubleOrNull() ?: 0.0,
+                        latitude = coordinates?.latitude,
+                        longitude = coordinates?.longitude
+                    )
+                    
+                    ordersToImport.add(order)
+                    newOrders++
+                } else {
+                    duplicates++
+                }
             }
+        
+        // Сортируем заказы по времени доставки
+        val sortedOrders = ordersToImport.sortedBy { it.deliveryTimeStart }
+        
+        // Присваиваем порядковые номера и сохраняем в базу
+        sortedOrders.forEach { order ->
+            val orderWithNumber = order.copy(orderNumber = nextOrderNumber)
+            orderDao.insert(orderWithNumber)
+            nextOrderNumber++
         }
         
         return ImportResult(newOrders, duplicates)
@@ -209,6 +219,23 @@ class OrderRepository(private val orderDao: OrderDao) {
     suspend fun updateOrderNotes(orderId: Long, notes: String) {
         val order = orderDao.findOrderById(orderId) ?: return
         orderDao.update(order.copy(notes = notes))
+    }
+
+    fun formatAddress(address: String): String {
+        return address.trim()
+            .replace("\\s+".toRegex(), " ")
+            .replace(Regex("(?i)г\\.?\\s*москва[,\\s]*"), "")
+            .replace(Regex("(?i)москва[,\\s]*"), "")
+            .replace(Regex("(?i)город\\s+"), "")
+            .replace(Regex("(?i)гор\\.?\\s*"), "")
+            .replace(Regex("(?i)дом\\s+(\\d)"), "д. $1")
+            .replace(Regex("(?i)д\\s+(\\d)"), "д. $1")
+            .replace(Regex("(?i)улица\\s+"), "ул. ")
+            .replace(Regex("(?i)ул\\s+"), "ул. ")
+            .replace(Regex("(?i)проспект\\s+"), "пр-т ")
+            .replace(Regex("(?i)пр\\s+"), "пр-т ")
+            .let { addr -> "Москва, $addr" }
+            .trim()
     }
 }
 

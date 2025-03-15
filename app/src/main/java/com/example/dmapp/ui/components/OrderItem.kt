@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Message
+import androidx.compose.material.icons.rounded.Call
+import androidx.compose.material.icons.rounded.Message
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -142,9 +144,9 @@ fun OrderItem(
                         }
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Call,
+                            imageVector = Icons.Rounded.Call,
                             contentDescription = "Позвонить",
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = Color(0xFF2196F3) // Светло-синий для звонка
                         )
                     }
                     
@@ -157,24 +159,25 @@ fun OrderItem(
                         }
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Message,
+                            imageVector = Icons.Rounded.Message,
                             contentDescription = "Отправить SMS",
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = Color.Gray
                         )
                     }
                     
                     IconButton(
                         onClick = {
                             val intent = Intent(Intent.ACTION_VIEW).apply {
-                                data = Uri.parse("https://wa.me/${order.clientPhone.replace("+", "")}")
+                                data = Uri.parse("https://api.whatsapp.com/send?phone=${order.clientPhone.replace("+", "")}")
                             }
                             context.startActivity(intent)
                         }
                     ) {
-                        Text(
-                            text = "💬",
-                            fontSize = 24.sp,
-                            color = Color(0xFF25D366) // WhatsApp green color
+                        // Используем кастомную иконку для WhatsApp
+                        Icon(
+                            painter = androidx.compose.ui.res.painterResource(id = com.example.dmapp.R.drawable.ic_whatsapp),
+                            contentDescription = "Написать в WhatsApp",
+                            tint = Color.Unspecified // Не тонируем, так как иконка уже имеет нужный цвет
                         )
                     }
                 }

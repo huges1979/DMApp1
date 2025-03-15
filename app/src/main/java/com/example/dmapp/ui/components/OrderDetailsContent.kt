@@ -1,0 +1,353 @@
+package com.example.dmapp.ui.components
+
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.rounded.Call
+import androidx.compose.material.icons.rounded.Message
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.dmapp.data.Order
+import com.example.dmapp.data.OrderStatus
+import java.time.format.DateTimeFormatter
+
+/**
+ * Общий компонент для отображения детальной информации о заказе.
+ * Используется как в карточке заказа на карте, так и в списке заказов.
+ */
+@Composable
+fun OrderDetailsContent(
+    order: Order,
+    modifier: Modifier = Modifier,
+    onStatusChange: ((Order, OrderStatus) -> Unit)? = null,
+    onNotesChange: ((Order, String) -> Unit)? = null
+) {
+    // Локальное состояние для заметок
+    var notesText by remember { mutableStateOf(order.notes ?: "") }
+    
+    // Определяем цвета для кнопок
+    val blueButtonColor = Color(0xFF2196F3) // Светло-синий для "В работу"
+    val greenButtonColor = Color(0xFF4CAF50) // Зеленый для "Завершить"
+    val whatsappColor = Color(0xFF25D366) // Зеленый цвет WhatsApp
+    
+    // Получаем контекст для запуска Intent'ов
+    val context = LocalContext.current
+    
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+    ) {
+        // Время доставки
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Default.Schedule,
+                contentDescription = null,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Доставка: ${order.deliveryTimeStart.format(DateTimeFormatter.ofPattern("HH:mm"))} - " +
+                      "${order.deliveryTimeEnd.format(DateTimeFormatter.ofPattern("HH:mm"))}",
+                style = MaterialTheme.typography.bodyLarge,
+                fontSize = 16.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Адрес
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Default.Place,
+                contentDescription = null,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = order.deliveryAddress,
+                style = MaterialTheme.typography.bodyLarge,
+                fontSize = 16.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Клиент
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Default.Person,
+                contentDescription = null,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = order.clientName,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontSize = 16.sp
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = order.clientPhone,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontSize = 15.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                    
+                    // Иконка для звонка
+                    IconButton(
+                        onClick = {
+                            val intent = Intent(Intent.ACTION_DIAL).apply {
+                                data = Uri.parse("tel:${order.clientPhone}")
+                            }
+                            context.startActivity(intent)
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            Icons.Rounded.Call,
+                            contentDescription = "Позвонить",
+                            tint = Color(0xFF2196F3) // Светло-синий для звонка
+                        )
+                    }
+                    
+                    // Иконка для SMS
+                    IconButton(
+                        onClick = {
+                            val intent = Intent(Intent.ACTION_SENDTO).apply {
+                                data = Uri.parse("smsto:${order.clientPhone}")
+                            }
+                            context.startActivity(intent)
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            Icons.Rounded.Message,
+                            contentDescription = "Отправить SMS",
+                            tint = Color.Gray
+                        )
+                    }
+                    
+                    // Иконка для WhatsApp
+                    IconButton(
+                        onClick = {
+                            val phoneNumber = order.clientPhone.replace(Regex("[^0-9]"), "")
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW).apply {
+                                    data = Uri.parse("https://api.whatsapp.com/send?phone=$phoneNumber")
+                                }
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                // Если WhatsApp не установлен, открываем веб-версию
+                                val webIntent = Intent(Intent.ACTION_VIEW).apply {
+                                    data = Uri.parse("https://web.whatsapp.com/send?phone=$phoneNumber")
+                                }
+                                context.startActivity(webIntent)
+                            }
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        // Используем кастомную иконку для WhatsApp
+                        Icon(
+                            painter = androidx.compose.ui.res.painterResource(id = com.example.dmapp.R.drawable.ic_whatsapp),
+                            contentDescription = "Написать в WhatsApp",
+                            tint = Color.Unspecified // Не тонируем, так как иконка уже имеет нужный цвет
+                        )
+                    }
+                }
+            }
+        }
+
+        if (!order.clientComment.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            // Комментарий
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Comment,
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = order.clientComment ?: "",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontSize = 15.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Информация о заказе
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "${order.weight} кг",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontSize = 16.sp
+                )
+                Text(
+                    text = "Вес",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "${order.volume} м³",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontSize = 16.sp
+                )
+                Text(
+                    text = "Объем",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "${order.orderAmount} ₽",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontSize = 16.sp
+                )
+                Text(
+                    text = if (order.isPrepaid) "Оплачен" else "К оплате",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontSize = 14.sp,
+                    color = if (order.isPrepaid) 
+                        MaterialTheme.colorScheme.primary 
+                    else 
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        
+        // Инструкции по доставке
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        Text(
+            text = "Инструкции по доставке",
+            style = MaterialTheme.typography.titleMedium,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold
+        )
+        
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = order.clientComment ?: "Особых инструкций нет",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontSize = 16.sp
+                )
+                
+                if (order.clientComment.isNullOrBlank()) {
+                    Text(
+                        text = "• Позвоните клиенту за 15-20 минут до прибытия\n• Проверьте комплектность заказа перед вручением\n• Будьте вежливы и приветливы",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontSize = 16.sp,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+            }
+        }
+        
+        // Заметки к заказу - теперь всегда отображаем секцию заметок
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        Text(
+            text = "Заметки",
+            style = MaterialTheme.typography.titleMedium,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold
+        )
+        
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        // Поле для ввода заметок
+        OutlinedTextField(
+            value = notesText,
+            onValueChange = { newText ->
+                notesText = newText
+                // Вызываем обработчик изменения заметок, если он передан
+                onNotesChange?.invoke(order, newText)
+            },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("Добавьте заметку...", fontSize = 16.sp) },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                unfocusedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+            ),
+            textStyle = LocalTextStyle.current.copy(fontSize = 16.sp),
+            minLines = 3,
+            maxLines = 5
+        )
+        
+        // Кнопка смены статуса перемещена в самый низ
+        if (onStatusChange != null) {
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            Button(
+                onClick = {
+                    // Определяем следующий статус
+                    val nextStatus = when (order.status) {
+                        OrderStatus.NEW -> OrderStatus.IN_PROGRESS
+                        OrderStatus.IN_PROGRESS -> OrderStatus.COMPLETED
+                        OrderStatus.COMPLETED -> OrderStatus.NEW
+                        else -> OrderStatus.NEW
+                    }
+                    onStatusChange(order, nextStatus)
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = when (order.status) {
+                        OrderStatus.NEW -> blueButtonColor // Светло-синий для "В работу"
+                        OrderStatus.IN_PROGRESS -> greenButtonColor // Зеленый для "Завершить"
+                        OrderStatus.COMPLETED -> MaterialTheme.colorScheme.secondary
+                        else -> blueButtonColor
+                    }
+                )
+            ) {
+                Text(
+                    text = when (order.status) {
+                        OrderStatus.NEW -> "В работу"
+                        OrderStatus.IN_PROGRESS -> "Завершить"
+                        OrderStatus.COMPLETED -> "Сбросить"
+                        else -> "Изменить статус"
+                    },
+                    fontSize = 16.sp
+                )
+            }
+        }
+    }
+} 

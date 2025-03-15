@@ -1,15 +1,23 @@
 package com.example.dmapp.ui.screens
 
 import android.os.Bundle
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -19,33 +27,58 @@ import com.yandex.mapkit.Animation
 import com.yandex.mapkit.MapKitFactory
 import com.yandex.mapkit.geometry.Point
 import com.yandex.mapkit.map.CameraPosition
-import com.yandex.mapkit.map.MapObjectCollection
 import com.yandex.mapkit.mapview.MapView
 import com.yandex.mapkit.search.*
 import com.yandex.runtime.Error
+import com.yandex.runtime.image.ImageProvider
 import kotlinx.coroutines.*
 import com.yandex.mapkit.geometry.BoundingBox
 import com.yandex.mapkit.geometry.Geometry
 import kotlin.coroutines.resume
-import com.yandex.runtime.image.ImageProvider
-import android.graphics.*
-import androidx.core.content.ContextCompat
-import android.graphics.drawable.Drawable
-import androidx.core.graphics.drawable.DrawableCompat
+import androidx.compose.animation.*
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.font.FontWeight
+import java.time.format.DateTimeFormatter
+import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SheetState
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.foundation.layout.WindowInsets
+import com.example.dmapp.ui.components.OrderDetailsContent
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.MainScope
+import com.yandex.mapkit.map.MapObjectTapListener
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MapScreen(
     orders: List<Order>,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onStatusUpdate: ((Order, OrderStatus) -> Unit)? = null
 ) {
     val context = LocalContext.current
     var mapView by remember { mutableStateOf<MapView?>(null) }
     var isMapReady by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    
+    // Используем MutableState для selectedOrder
+    val selectedOrderState = remember { mutableStateOf<Order?>(null) }
+    var selectedOrder by selectedOrderState
+    
+    println("MapScreen initialized with selectedOrder = $selectedOrder")
     val scope = rememberCoroutineScope()
     val searchManager = remember { SearchFactory.getInstance().createSearchManager(SearchManagerType.COMBINED) }
     var geocodedOrders by remember { mutableStateOf<List<Pair<Order, Point?>>>(emptyList()) }
+
+    // Константы для границ Москвы
+    val MOSCOW_BOUNDS = BoundingBox(
+        Point(55.48992, 37.319331), // юго-западная граница Москвы
+        Point(55.957565, 37.907543) // северо-восточная граница Москвы
+    )
 
     // Функция для вычисления расстояния между точками в метрах
     fun calculateDistance(point1: Point, point2: Point): Double {
@@ -88,20 +121,17 @@ fun MapScreen(
 
     // Функция для определения цвета маркера на основе времени заказа и статуса
     fun getMarkerColor(order: Order): Int {
-        // Если заказ в работе, возвращаем светло-зеленый
         if (order.status == OrderStatus.IN_PROGRESS) {
-            return Color.rgb(144, 238, 144) // Light Green
+            return android.graphics.Color.rgb(144, 238, 144) // Light Green - для заказов в работе
         }
 
-        // Получаем час из времени доставки
         val deliveryHour = order.deliveryTimeStart.hour
-
         return when {
-            deliveryHour in 11..14 -> Color.rgb(135, 206, 235) // Sky Blue (11:00 - 15:00)
-            deliveryHour in 14..16 -> Color.rgb(255, 165, 0)   // Orange (14:00 - 17:00)
-            deliveryHour in 17..19 -> Color.RED                 // Red (17:00 - 20:00)
-            deliveryHour in 20..22 -> Color.rgb(148, 0, 211)   // Purple (20:00 - 23:00)
-            else -> Color.GRAY                                  // Default color
+            deliveryHour in 11..13 -> android.graphics.Color.rgb(135, 206, 235) // Sky Blue (11:00 - 13:59)
+            deliveryHour in 14..16 -> android.graphics.Color.rgb(255, 165, 0)   // Orange (14:00 - 16:59)
+            deliveryHour in 17..19 -> android.graphics.Color.RED                 // Red (17:00 - 19:59)
+            deliveryHour in 20..22 -> android.graphics.Color.rgb(148, 0, 211)   // Purple (20:00 - 22:59)
+            else -> android.graphics.Color.GRAY                                  // Gray - для остальных времен
         }
     }
 
@@ -116,7 +146,7 @@ fun MapScreen(
         paint.style = Paint.Style.FILL
         
         // Рисуем тень
-        paint.setShadowLayer(4f, 0f, 2f, Color.argb(50, 0, 0, 0))
+        paint.setShadowLayer(4f, 0f, 2f, android.graphics.Color.argb(50, 0, 0, 0))
         
         // Рисуем круглую головку булавки
         val circleRadius = size * 0.35f
@@ -135,12 +165,12 @@ fun MapScreen(
         paint.clearShadowLayer()
         
         // Рисуем белый круг для номера
-        paint.color = Color.WHITE
+        paint.color = android.graphics.Color.WHITE
         paint.alpha = 230
         canvas.drawCircle(size/2f, size * 0.35f, circleRadius * 0.7f, paint)
         
         // Рисуем номер
-        paint.color = Color.BLACK
+        paint.color = android.graphics.Color.BLACK
         paint.alpha = 255
         paint.textSize = circleRadius * 0.9f
         paint.textAlign = Paint.Align.CENTER
@@ -159,41 +189,180 @@ fun MapScreen(
     // Функция для форматирования адреса
     fun formatAddress(address: String): String {
         return address.trim()
-            .replace("\\s+".toRegex(), " ") // Убираем лишние пробелы
-            .replace(Regex("(?i)г\\.?\\s*москва[,\\s]*"), "") // Убираем "г. Москва"
-            .replace(Regex("(?i)москва[,\\s]*"), "") // Убираем "Москва"
-            .replace(Regex("(?i)город\\s+"), "") // Убираем "город"
-            .replace(Regex("(?i)гор\\.?\\s*"), "") // Убираем "гор."
-            .replace(Regex("(?i)дом\\s+(\\d)"), "д. $1") // Заменяем "дом N" на "д. N"
-            .replace(Regex("(?i)д\\s+(\\d)"), "д. $1") // Заменяем "д N" на "д. N"
-            .replace(Regex("(?i)улица\\s+"), "ул. ") // Заменяем "улица" на "ул."
-            .replace(Regex("(?i)ул\\s+"), "ул. ") // Заменяем "ул " на "ул."
-            .replace(Regex("(?i)проспект\\s+"), "пр-т ") // Заменяем "проспект" на "пр-т"
-            .replace(Regex("(?i)пр\\s+"), "пр-т ") // Заменяем "пр " на "пр-т"
-            .let { addr -> 
-                "Москва, $addr"
-            }
+            .replace("\\s+".toRegex(), " ")
+            // Стандартизация обозначений
+            .replace(Regex("(?i)г\\.?\\s*москва[,\\s]*"), "")
+            .replace(Regex("(?i)москва[,\\s]*"), "")
+            .replace(Regex("(?i)город\\s+"), "")
+            .replace(Regex("(?i)гор\\.?\\s*"), "")
+            // Удаляем лишнюю информацию
+            .replace(Regex("(?i)подъезд\\s*№?\\s*\\d+"), "")
+            .replace(Regex("(?i)эт\\.?\\s*\\d+"), "")
+            .replace(Regex("(?i)кв\\.?\\s*\\d+[а-я]?"), "")
+            // Стандартизация номеров домов с корпусами
+            .replace(Regex("(?i)дом\\s*(\\d+)\\s*к\\s*(\\d+)"), "$1 корпус $2")
+            .replace(Regex("(?i)д\\.?\\s*(\\d+)\\s*к\\s*(\\d+)"), "$1 корпус $2")
+            .replace(Regex("(?i)д\\s*(\\d+)\\s*к\\s*(\\d+)"), "$1 корпус $2")
+            .replace(Regex("(?i)(\\d+)\\s*к\\s*(\\d+)"), "$1 корпус $2")
+            // Стандартизация одиночных номеров домов
+            .replace(Regex("(?i)дом\\s*(\\d+)"), "$1")
+            .replace(Regex("(?i)д\\.?\\s*(\\d+)"), "$1")
+            .replace(Regex("(?i)д\\s*(\\d+)"), "$1")
+            // Стандартизация улиц
+            .replace(Regex("(?i)улица\\s+"), "улица ")
+            .replace(Regex("(?i)ул\\s+"), "улица ")
+            .replace(Regex("(?i)ул\\.\\s+"), "улица ")
+            // Стандартизация проспектов
+            .replace(Regex("(?i)проспект\\s+"), "проспект ")
+            .replace(Regex("(?i)пр\\s+"), "проспект ")
+            .replace(Regex("(?i)пр-т\\s+"), "проспект ")
+            .replace(Regex("(?i)пр\\.\\s+"), "проспект ")
+            // Стандартизация переулков
+            .replace(Regex("(?i)переулок\\s+"), "переулок ")
+            .replace(Regex("(?i)пер\\s+"), "переулок ")
+            .replace(Regex("(?i)пер\\.\\s+"), "переулок ")
+            // Стандартизация бульваров
+            .replace(Regex("(?i)бульвар\\s+"), "бульвар ")
+            .replace(Regex("(?i)бул\\s+"), "бульвар ")
+            .replace(Regex("(?i)бул\\.\\s+"), "бульвар ")
+            .replace(Regex("(?i)б-р\\s+"), "бульвар ")
+            // Стандартизация шоссе
+            .replace(Regex("(?i)шоссе\\s+"), "шоссе ")
+            .replace(Regex("(?i)ш\\s+"), "шоссе ")
+            .replace(Regex("(?i)ш\\.\\s+"), "шоссе ")
+            // Стандартизация площадей
+            .replace(Regex("(?i)площадь\\s+"), "площадь ")
+            .replace(Regex("(?i)пл\\s+"), "площадь ")
+            .replace(Regex("(?i)пл\\.\\s+"), "площадь ")
+            // Добавляем город в начало
+            .let { addr -> "город Москва, $addr" }
             .trim()
+    }
+
+    // Функция для обработки нажатия на маркер
+    val onMarkerTap: (Order) -> Unit = { order ->
+        println("Marker tapped for order ${order.orderNumber}")  // Добавляем логирование
+        selectedOrder = order  // Просто устанавливаем новый заказ
+    }
+
+    suspend fun geocodeAddress(address: String): Point? = suspendCancellableCoroutine { continuation ->
+        var session: Session? = null
+        try {
+            val searchOptions = SearchOptions().apply {
+                searchTypes = SearchType.GEO.value
+                resultPageSize = 1
+                geometry = true
+                disableSpellingCorrection = false
+                origin = "DMApp-Courier"
+            }
+
+            // Пробуем сначала с полным адресом
+            session = searchManager.submit(
+                address,
+                Geometry.fromBoundingBox(MOSCOW_BOUNDS),
+                searchOptions,
+                object : Session.SearchListener {
+                    override fun onSearchResponse(response: Response) {
+                        val result = response.collection.children.firstOrNull()?.obj
+                        val point = result?.geometry?.firstOrNull()?.point
+                        
+                        if (point != null) {
+                            println("\nGeocoding SUCCESS")
+                            println("Input address: $address")
+                            println("Found location: ${result.name}")
+                            println("Found address: ${result.descriptionText}")
+                            println("Coordinates: $point")
+                            
+                            // Проверяем, что точка находится в пределах Москвы
+                            if (point.latitude in 55.48992..55.957565 &&
+                                point.longitude in 37.319331..37.907543) {
+                                continuation.resume(point)
+                            } else {
+                                println("Point is outside Moscow bounds")
+                                continuation.resume(null)
+                            }
+                        } else {
+                            // Если не нашли, пробуем без слова "город"
+                            val alternativeAddress = address.replace("город ", "")
+                            searchManager.submit(
+                                alternativeAddress,
+                                Geometry.fromBoundingBox(MOSCOW_BOUNDS),
+                                searchOptions,
+                                object : Session.SearchListener {
+                                    override fun onSearchResponse(response: Response) {
+                                        val result = response.collection.children.firstOrNull()?.obj
+                                        val point = result?.geometry?.firstOrNull()?.point
+                                        
+                                        if (point != null && 
+                                            point.latitude in 55.48992..55.957565 &&
+                                            point.longitude in 37.319331..37.907543) {
+                                            println("\nGeocoding SUCCESS with alternative address")
+                                            println("Input address: $alternativeAddress")
+                                            println("Found location: ${result.name}")
+                                            println("Found address: ${result.descriptionText}")
+                                            println("Coordinates: $point")
+                                            continuation.resume(point)
+                                        } else {
+                                            println("\nGeocoding FAILED")
+                                            println("Input address: $address")
+                                            println("Alternative address: $alternativeAddress")
+                                            println("No results found")
+                                            continuation.resume(null)
+                                        }
+                                    }
+
+                                    override fun onSearchError(error: Error) {
+                                        println("\nGeocoding ERROR")
+                                        println("Input address: $address")
+                                        println("Error: $error")
+                                        continuation.resume(null)
+                                    }
+                                }
+                            )
+                        }
+                    }
+
+                    override fun onSearchError(error: Error) {
+                        println("\nGeocoding ERROR")
+                        println("Input address: $address")
+                        println("Error: $error")
+                        continuation.resume(null)
+                    }
+                }
+            )
+
+            continuation.invokeOnCancellation {
+                session?.cancel()
+            }
+        } catch (e: Exception) {
+            println("\nEXCEPTION during geocoding")
+            println("Input address: $address")
+            println("Error: ${e.message}")
+            e.printStackTrace()
+            continuation.resume(null)
+        }
     }
 
     LaunchedEffect(orders) {
         scope.launch {
             println("\n=== Starting geocoding process for ${orders.size} orders ===\n")
+            println("Moscow bounds: ${MOSCOW_BOUNDS.southWest} to ${MOSCOW_BOUNDS.northEast}")
             
             geocodedOrders = orders.map { order ->
+                println("\nProcessing order ${order.orderNumber}")
+                println("Original address: ${order.deliveryAddress}")
+                
                 if (order.latitude != null && order.longitude != null) {
                     // Проверяем, что координаты не являются дефолтными (центр Москвы)
                     if (order.latitude != 55.751574 && order.longitude != 37.573856) {
-                        println("Order ${order.orderNumber} has valid coordinates: ${order.latitude}, ${order.longitude}")
+                        println("Using existing coordinates: ${order.latitude}, ${order.longitude}")
                         order to Point(order.latitude, order.longitude)
                     } else {
-                        println("\n=== Order ${order.orderNumber} has default coordinates, will try geocoding ===")
-                        println("Original address: ${order.deliveryAddress}")
+                        println("Found default coordinates, will try geocoding")
                         null
                     }
                 } else {
-                    println("\n=== Order ${order.orderNumber} has no coordinates, will try geocoding ===")
-                    println("Original address: ${order.deliveryAddress}")
+                    println("No coordinates found, will try geocoding")
                     null
                 }
             }.filterNotNull() + orders.filter { order ->
@@ -211,11 +380,14 @@ fun MapScreen(
                         val options = SearchOptions().apply {
                             searchTypes = SearchType.GEO.value
                             resultPageSize = 1
+                            geometry = true
+                            disableSpellingCorrection = false
+                            origin = "DMApp-Courier"
                         }
 
                         session = searchManager.submit(
                             formattedAddress,
-                            Geometry.fromPoint(Point(55.751574, 37.573856)), // Центр Москвы как отправная точка
+                            Geometry.fromBoundingBox(MOSCOW_BOUNDS),
                             options,
                             object : Session.SearchListener {
                                 override fun onSearchResponse(response: Response) {
@@ -272,12 +444,49 @@ fun MapScreen(
         }
     }
 
+    // Отслеживаем изменения selectedOrder с улучшенным логированием
+    LaunchedEffect(selectedOrderState.value) {
+        val order = selectedOrderState.value
+        println("LaunchedEffect: selectedOrder changed to: ${order?.orderNumber}")
+        if (order != null) {
+            println("LaunchedEffect: Selected order details: ${order.orderNumber}, ${order.deliveryAddress}")
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             try {
                 mapView?.onStop()
             } catch (e: Exception) {
                 e.printStackTrace()
+            }
+        }
+    }
+
+    // Создаем слушатель нажатий на маркер
+    val mapObjectTapListener = remember {
+        MapObjectTapListener { mapObject, point ->
+            println("MapObjectTapListener: Marker tap detected at $point")
+            
+            val tappedOrder = mapObject.userData as? Order
+            if (tappedOrder != null) {
+                println("MapObjectTapListener: Tap listener triggered for order ${tappedOrder.orderNumber}")
+                
+                // Обновляем UI в основном потоке
+                scope.launch(Dispatchers.Main) {
+                    println("MapObjectTapListener: Setting selectedOrder to ${tappedOrder.orderNumber}")
+                    // Сначала сбрасываем значение, чтобы гарантировать обновление UI
+                    selectedOrderState.value = null
+                    // Небольшая задержка для обновления UI
+                    delay(50)
+                    // Устанавливаем новое значение
+                    selectedOrderState.value = tappedOrder
+                    println("MapObjectTapListener: After setting, selectedOrder is now ${selectedOrderState.value?.orderNumber}")
+                }
+                true
+            } else {
+                println("MapObjectTapListener: ERROR: Tapped order is null!")
+                false
             }
         }
     }
@@ -294,7 +503,7 @@ fun MapScreen(
             )
         }
     ) { padding ->
-        Box(modifier = Modifier.padding(padding)) {
+        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
             if (!isMapReady) {
                 CircularProgressIndicator(
                     modifier = Modifier
@@ -372,25 +581,40 @@ fun MapScreen(
                             }
                         }
 
+                        // Создаем коллекцию маркеров
+                        val mapObjects = map.mapObjects
+                        mapObjects.clear()
+
                         // Отображаем маркеры с учетом скорректированных позиций
                         adjustedPoints.forEach { (order, point, _) ->
-                            val placemark = map.mapObjects.addPlacemark(point)
-                            val markerBitmap = createMarkerBitmap(view.context, order)
-                            placemark.setIcon(ImageProvider.fromBitmap(markerBitmap))
+                            val placemark = mapObjects.addPlacemark(point).apply {
+                                val markerBitmap = createMarkerBitmap(view.context, order)
+                                setIcon(ImageProvider.fromBitmap(markerBitmap))
+                                userData = order // Сохраняем заказ в userData маркера
+                                
+                                // Добавляем логирование для отслеживания создания маркера
+                                println("Created marker for order ${order.orderNumber} at $point")
+                            }
+                            
+                            // Используем созданный слушатель нажатий
+                            placemark.addTapListener(mapObjectTapListener)
                         }
 
-                        // Центрируем карту на первой точке
-                        adjustedPoints.firstOrNull()?.let { (_, point, _) ->
-                            map.move(
-                                CameraPosition(
-                                    point,
-                                    11.0f,
-                                    0.0f,
-                                    0.0f
-                                ),
-                                Animation(Animation.Type.SMOOTH, 0.3f),
-                                null
-                            )
+                        // Центрируем карту на первой точке только при первой загрузке
+                        if (!isMapReady) {
+                            adjustedPoints.firstOrNull()?.let { (_, point, _) ->
+                                map.move(
+                                    CameraPosition(
+                                        point,
+                                        11.0f,
+                                        0.0f,
+                                        0.0f
+                                    ),
+                                    Animation(Animation.Type.SMOOTH, 0.3f),
+                                    null
+                                )
+                                isMapReady = true
+                            }
                         }
                     } catch (e: Exception) {
                         e.printStackTrace()
@@ -398,6 +622,89 @@ fun MapScreen(
                     }
                 }
             )
+            
+            // Нижняя панель с информацией о заказе - теперь внутри Box
+            if (selectedOrder != null) {
+                println("Showing card for order ${selectedOrder?.orderNumber}")
+                
+                // Используем Card вместо ModalBottomSheet с анимацией появления
+                AnimatedVisibility(
+                    visible = selectedOrder != null,
+                    enter = slideInVertically(
+                        initialOffsetY = { it }, // Начинаем снизу экрана
+                        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                    ),
+                    exit = slideOutVertically(
+                        targetOffsetY = { it }, // Уходим вниз экрана
+                        animationSpec = tween(durationMillis = 200)
+                    )
+                ) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.BottomCenter)
+                            .padding(16.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                        colors = CardDefaults.cardColors(containerColor = ComposeColor.White)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp)
+                        ) {
+                            // Заголовок с кнопкой закрытия
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Добавляем заголовок с номером заказа
+                                Text(
+                                    text = "${selectedOrder?.orderNumber}. Заказ ${selectedOrder?.externalOrderNumber ?: "Н/Д"}",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 18.sp
+                                )
+                                
+                                IconButton(onClick = { 
+                                    println("Close button clicked")
+                                    selectedOrderState.value = null 
+                                }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Закрыть")
+                                }
+                            }
+                            
+                            Divider()
+                            
+                            // Используем общий компонент OrderDetailsContent
+                            OrderDetailsContent(
+                                order = selectedOrder!!,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp),
+                                onStatusChange = { order, newStatus ->
+                                    // Обновляем статус заказа локально
+                                    println("Status changed from ${order.status} to $newStatus")
+                                    selectedOrderState.value = order.copy(status = newStatus)
+                                    
+                                    // Вызываем обработчик обновления статуса, если он передан
+                                    onStatusUpdate?.invoke(order, newStatus)
+                                },
+                                onNotesChange = { order, newNotes ->
+                                    // Обновляем заметки заказа локально
+                                    println("Notes changed for order ${order.orderNumber}")
+                                    selectedOrderState.value = order.copy(notes = newNotes)
+                                    
+                                    // Вызываем обработчик обновления заметок, если он передан
+                                    onStatusUpdate?.invoke(order.copy(notes = newNotes), order.status)
+                                }
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 } 

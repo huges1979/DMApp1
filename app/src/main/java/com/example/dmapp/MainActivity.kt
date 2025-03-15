@@ -27,6 +27,8 @@ import androidx.navigation.compose.rememberNavController
 import com.example.dmapp.data.AppDatabase
 import com.example.dmapp.data.Order
 import com.example.dmapp.data.OrderRepository
+import com.example.dmapp.data.OrderStatus
+import com.example.dmapp.data.ImportResult
 import com.example.dmapp.ui.OrderViewModel
 import com.example.dmapp.ui.components.ImportDialog
 import com.example.dmapp.ui.components.OrdersList
@@ -35,6 +37,7 @@ import com.example.dmapp.ui.screens.MapScreen
 import com.example.dmapp.ui.screens.OrderDetailScreen
 import com.yandex.mapkit.MapKitFactory
 import com.yandex.mapkit.search.SearchFactory
+import kotlinx.coroutines.flow.StateFlow
 
 class App : Application() {
     override fun onCreate() {
@@ -91,7 +94,10 @@ class MainActivity : ComponentActivity() {
                             onImportClick = { showImportDialog = true },
                             onClearCompleted = { viewModel.clearCompletedOrders() },
                             onImportDialogDismiss = { viewModel.clearImportResult() },
-                            onDeleteResultDismiss = { viewModel.clearDeleteResult() }
+                            onDeleteResultDismiss = { viewModel.clearDeleteResult() },
+                            onStatusUpdate = { order, newStatus: OrderStatus ->
+                                viewModel.updateOrderStatus(order, newStatus)
+                            }
                         )
 
                         if (showImportDialog) {
@@ -110,15 +116,19 @@ class MainActivity : ComponentActivity() {
                         order?.let {
                             OrderDetailScreen(
                                 order = it,
-                                onStatusUpdate = { order, newStatus ->
-                                    viewModel.updateOrderStatus(order, newStatus)
-                                    navController.popBackStack()
-                                },
                                 onNavigateBack = {
                                     navController.popBackStack()
                                 },
-                                onNotesUpdate = { orderId, notes ->
-                                    viewModel.updateOrderNotes(orderId, notes)
+                                onEditOrder = { editedOrder ->
+                                    // Здесь можно добавить логику для редактирования заказа
+                                    // Например, обновление статуса или заметок
+                                    if (editedOrder.status != it.status) {
+                                        viewModel.updateOrderStatus(editedOrder, editedOrder.status)
+                                    }
+                                    if (editedOrder.notes != it.notes) {
+                                        viewModel.updateOrderNotes(editedOrder.id, editedOrder.notes ?: "")
+                                    }
+                                    navController.popBackStack()
                                 }
                             )
                         }
@@ -145,92 +155,19 @@ class MainActivity : ComponentActivity() {
         }
         super.onStop()
     }
-}
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun MainScreen(
-    activeOrders: List<Order>,
-    completedOrders: List<Order>,
-    activeOrdersCount: Int,
-    completedOrdersCount: Int,
-    importResult: String,
-    deleteResult: String,
-    onOrderClick: (Order) -> Unit,
-    onImportClick: () -> Unit,
-    onClearCompleted: () -> Unit,
-    onImportDialogDismiss: () -> Unit,
-    onDeleteResultDismiss: () -> Unit
-) {
-    var showMap by remember { mutableStateOf(false) }
-    
-    if (showMap) {
-        MapScreen(
-            orders = activeOrders + completedOrders,
-            onNavigateBack = { showMap = false }
-        )
-    } else {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = { Text("Заказы") },
-                    actions = {
-                        // Кнопка карты с текстом
-                        TextButton(
-                            onClick = { showMap = true },
-                            modifier = Modifier.padding(end = 8.dp)
-                        ) {
-                            Text("Map", color = MaterialTheme.colorScheme.primary)
-                        }
-                        // Кнопка импорта
-                        IconButton(onClick = onImportClick) {
-                            Icon(
-                                imageVector = Icons.Default.FileUpload,
-                                contentDescription = "Импорт заказов"
-                            )
-                        }
-                    }
-                )
-            }
-        ) { paddingValues ->
-            Box(modifier = Modifier.fillMaxSize()) {
-                OrdersList(
-                    modifier = Modifier.padding(paddingValues),
-                    activeOrders = activeOrders,
-                    completedOrders = completedOrders,
-                    activeOrdersCount = activeOrdersCount,
-                    completedOrdersCount = completedOrdersCount,
-                    onOrderClick = onOrderClick,
-                    onClearCompleted = onClearCompleted
-                )
-                
-                // Показываем сообщения об импорте/удалении
-                if (importResult.isNotEmpty()) {
-                    AlertDialog(
-                        onDismissRequest = onImportDialogDismiss,
-                        title = { Text("Результат импорта") },
-                        text = { Text(importResult) },
-                        confirmButton = {
-                            TextButton(onClick = onImportDialogDismiss) {
-                                Text("OK")
-                            }
-                        }
-                    )
-                }
-                
-                if (deleteResult.isNotEmpty()) {
-                    AlertDialog(
-                        onDismissRequest = onDeleteResultDismiss,
-                        title = { Text("Удаление заказов") },
-                        text = { Text(deleteResult) },
-                        confirmButton = {
-                            TextButton(onClick = onDeleteResultDismiss) {
-                                Text("OK")
-                            }
-                        }
-                    )
-                }
-            }
+    private fun getMarkerColor(order: Order): Int {
+        if (order.status == OrderStatus.IN_PROGRESS) {
+            return android.graphics.Color.rgb(144, 238, 144) // Light Green
+        }
+
+        val deliveryHour = order.deliveryTimeStart.hour
+        return when {
+            deliveryHour in 11..13 -> android.graphics.Color.rgb(135, 206, 235) // Sky Blue (11:00 - 14:00)
+            deliveryHour in 14..16 -> android.graphics.Color.rgb(255, 165, 0)   // Orange (14:00 - 17:00)
+            deliveryHour in 17..19 -> android.graphics.Color.RED                 // Red (17:00 - 20:00)
+            deliveryHour in 20..22 -> android.graphics.Color.rgb(148, 0, 211)   // Purple (20:00 - 23:00)
+            else -> android.graphics.Color.GRAY
         }
     }
 }
