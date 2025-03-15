@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Message
+import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Message
 import androidx.compose.material3.*
@@ -107,12 +108,52 @@ fun OrderItem(
             Spacer(modifier = Modifier.height(4.dp))
             
             // Адрес доставки
-            Text(
-                text = order.deliveryAddress,
-                style = MaterialTheme.typography.bodyLarge,
-                fontSize = 18.sp,
-                color = Color.Black
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = order.deliveryAddress,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontSize = 18.sp,
+                    color = Color.Black,
+                    modifier = Modifier.weight(1f)
+                )
+                
+                // Иконка навигатора
+                IconButton(
+                    onClick = {
+                        if (order.latitude != null && order.longitude != null) {
+                            // Открываем Яндекс Навигатор с маршрутом
+                            val uri = Uri.parse("yandexnavi://build_route_on_map?lat_to=${order.latitude}&lon_to=${order.longitude}")
+                            val intent = Intent(Intent.ACTION_VIEW, uri)
+                            
+                            // Проверяем, установлен ли Яндекс Навигатор
+                            if (intent.resolveActivity(context.packageManager) != null) {
+                                context.startActivity(intent)
+                            } else {
+                                // Если не установлен, открываем Яндекс Карты в браузере
+                                val webUri = Uri.parse("https://yandex.ru/maps/?mode=routes&rtext=~${order.latitude},${order.longitude}")
+                                val webIntent = Intent(Intent.ACTION_VIEW, webUri)
+                                context.startActivity(webIntent)
+                            }
+                        } else {
+                            // Если координат нет, пытаемся открыть по адресу
+                            val escapedAddress = Uri.encode(order.deliveryAddress)
+                            val webUri = Uri.parse("https://yandex.ru/maps/?mode=search&text=$escapedAddress")
+                            val webIntent = Intent(Intent.ACTION_VIEW, webUri)
+                            context.startActivity(webIntent)
+                        }
+                    },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Navigation,
+                        contentDescription = "Открыть навигатор",
+                        tint = Color(0xFF2196F3) // Синий цвет для навигации
+                    )
+                }
+            }
             
             Spacer(modifier = Modifier.height(4.dp))
             

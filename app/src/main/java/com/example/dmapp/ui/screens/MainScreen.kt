@@ -15,6 +15,7 @@ import com.example.dmapp.data.ImportResult
 import com.example.dmapp.data.Order
 import com.example.dmapp.data.OrderStatus
 import com.example.dmapp.ui.components.OrderItem
+import com.example.dmapp.ui.OrderViewModel
 import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.graphics.Color
 
@@ -32,7 +33,8 @@ fun MainScreen(
     onClearCompleted: () -> Unit,
     onImportDialogDismiss: () -> Unit,
     onDeleteResultDismiss: () -> Unit,
-    onStatusUpdate: ((Order, OrderStatus) -> Unit)? = null
+    onStatusUpdate: ((Order, OrderStatus) -> Unit)? = null,
+    viewModel: OrderViewModel
 ) {
     var selectedTabIndex by remember { mutableStateOf(0) }
     var showMap by remember { mutableStateOf(false) }
@@ -42,7 +44,8 @@ fun MainScreen(
         MapScreen(
             orders = activeOrders + completedOrders,
             onNavigateBack = { showMap = false },
-            onStatusUpdate = onStatusUpdate
+            onStatusUpdate = onStatusUpdate,
+            viewModel = viewModel
         )
     } else {
         Scaffold(

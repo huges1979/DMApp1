@@ -52,13 +52,15 @@ import com.example.dmapp.ui.components.OrderDetailsContent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import com.yandex.mapkit.map.MapObjectTapListener
+import com.example.dmapp.ui.OrderViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MapScreen(
     orders: List<Order>,
     onNavigateBack: () -> Unit,
-    onStatusUpdate: ((Order, OrderStatus) -> Unit)? = null
+    onStatusUpdate: ((Order, OrderStatus) -> Unit)? = null,
+    viewModel: OrderViewModel
 ) {
     val context = LocalContext.current
     var mapView by remember { mutableStateOf<MapView?>(null) }
@@ -200,14 +202,22 @@ fun MapScreen(
             .replace(Regex("(?i)эт\\.?\\s*\\d+"), "")
             .replace(Regex("(?i)кв\\.?\\s*\\d+[а-я]?"), "")
             // Стандартизация номеров домов с корпусами
-            .replace(Regex("(?i)дом\\s*(\\d+)\\s*к\\s*(\\d+)"), "$1 корпус $2")
-            .replace(Regex("(?i)д\\.?\\s*(\\d+)\\s*к\\s*(\\d+)"), "$1 корпус $2")
-            .replace(Regex("(?i)д\\s*(\\d+)\\s*к\\s*(\\d+)"), "$1 корпус $2")
-            .replace(Regex("(?i)(\\d+)\\s*к\\s*(\\d+)"), "$1 корпус $2")
+            .replace(Regex("(?i)дом\\s*(\\d+)\\s*корпус\\s*(\\d+)"), "дом $1 корпус $2")
+            .replace(Regex("(?i)дом\\s*(\\d+)\\s*корп\\.?\\s*(\\d+)"), "дом $1 корпус $2")
+            .replace(Regex("(?i)дом\\s*(\\d+)\\s*к\\s*(\\d+)"), "дом $1 корпус $2")
+            .replace(Regex("(?i)д\\.?\\s*(\\d+)\\s*корпус\\s*(\\d+)"), "дом $1 корпус $2")
+            .replace(Regex("(?i)д\\.?\\s*(\\d+)\\s*корп\\.?\\s*(\\d+)"), "дом $1 корпус $2")
+            .replace(Regex("(?i)д\\.?\\s*(\\d+)\\s*к\\s*(\\d+)"), "дом $1 корпус $2")
+            .replace(Regex("(?i)д\\s*(\\d+)\\s*к\\s*(\\d+)"), "дом $1 корпус $2")
+            .replace(Regex("(?i)(\\d+)\\s*к\\s*(\\d+)"), "дом $1 корпус $2")
+            .replace(Regex("(?i)(\\d+)\\s*корп\\.?\\s*(\\d+)"), "дом $1 корпус $2")
             // Стандартизация одиночных номеров домов
-            .replace(Regex("(?i)дом\\s*(\\d+)"), "$1")
-            .replace(Regex("(?i)д\\.?\\s*(\\d+)"), "$1")
-            .replace(Regex("(?i)д\\s*(\\d+)"), "$1")
+            .replace(Regex("(?i)дом\\s*(\\d+)"), "дом $1")
+            .replace(Regex("(?i)д\\.?\\s*(\\d+)"), "дом $1")
+            .replace(Regex("(?i)д\\s*(\\d+)"), "дом $1")
+            // Стандартизация строений
+            .replace(Regex("(?i)стр\\.?\\s*(\\d+)"), "строение $1")
+            .replace(Regex("(?i)строение\\s*(\\d+)"), "строение $1")
             // Стандартизация улиц
             .replace(Regex("(?i)улица\\s+"), "улица ")
             .replace(Regex("(?i)ул\\s+"), "улица ")
@@ -256,81 +266,106 @@ fun MapScreen(
                 origin = "DMApp-Courier"
             }
 
-            // Пробуем сначала с полным адресом
-            session = searchManager.submit(
-                address,
-                Geometry.fromBoundingBox(MOSCOW_BOUNDS),
-                searchOptions,
-                object : Session.SearchListener {
-                    override fun onSearchResponse(response: Response) {
-                        val result = response.collection.children.firstOrNull()?.obj
-                        val point = result?.geometry?.firstOrNull()?.point
-                        
-                        if (point != null) {
-                            println("\nGeocoding SUCCESS")
-                            println("Input address: $address")
-                            println("Found location: ${result.name}")
-                            println("Found address: ${result.descriptionText}")
-                            println("Coordinates: $point")
+            // Создаем различные варианты адреса для геокодинга
+            val formattedAddress = formatAddress(address)
+            
+            // Варианты адреса для попыток геокодинга
+            val addressVariants = mutableListOf<String>()
+            addressVariants.add(formattedAddress) // Основной формат
+            
+            // Вариант без слова "город"
+            addressVariants.add(formattedAddress.replace("город Москва, ", ""))
+            
+            // Альтернативные форматы для домов с корпусами
+            if (formattedAddress.contains("корпус")) {
+                // Вариант с заменой "корпус" на "к" 
+                addressVariants.add(formattedAddress.replace("корпус", "к"))
+                
+                // Вариант с номером дома и корпусом через дефис
+                val withHyphen = formattedAddress.replace(
+                    Regex("дом (\\d+) корпус (\\d+)"), 
+                    "дом $1-$2"
+                )
+                addressVariants.add(withHyphen)
+                
+                // Вариант без слова "дом" 
+                val withoutHouse = formattedAddress.replace(
+                    Regex("дом (\\d+) корпус (\\d+)"), 
+                    "$1 корпус $2"
+                )
+                addressVariants.add(withoutHouse)
+                
+                // Вариант через слеш
+                val withSlash = formattedAddress.replace(
+                    Regex("дом (\\d+) корпус (\\d+)"), 
+                    "дом $1/$2"
+                )
+                addressVariants.add(withSlash)
+            }
+            
+            println("Will try geocoding with following address variants:")
+            addressVariants.forEachIndexed { index, variant -> 
+                println("$index: $variant") 
+            }
+            
+            // Функция для выполнения запроса геокодинга с одним вариантом адреса
+            fun submitGeocodingRequest(addressToGeocode: String, isLastAttempt: Boolean) {
+                println("Trying to geocode: $addressToGeocode")
+                session = searchManager.submit(
+                    addressToGeocode,
+                    Geometry.fromBoundingBox(MOSCOW_BOUNDS),
+                    searchOptions,
+                    object : Session.SearchListener {
+                        override fun onSearchResponse(response: Response) {
+                            val result = response.collection.children.firstOrNull()?.obj
+                            val point = result?.geometry?.firstOrNull()?.point
                             
-                            // Проверяем, что точка находится в пределах Москвы
-                            if (point.latitude in 55.48992..55.957565 &&
+                            if (point != null && 
+                                point.latitude in 55.48992..55.957565 &&
                                 point.longitude in 37.319331..37.907543) {
+                                println("\nGeocoding SUCCESS")
+                                println("Input address: $addressToGeocode")
+                                println("Found location: ${result.name}")
+                                println("Found address: ${result.descriptionText}")
+                                println("Coordinates: $point")
                                 continuation.resume(point)
+                            } else if (!isLastAttempt) {
+                                println("No valid result found for variant: $addressToGeocode, trying next...")
                             } else {
-                                println("Point is outside Moscow bounds")
+                                println("\nGeocoding FAILED")
+                                println("All address variants failed")
                                 continuation.resume(null)
                             }
-                        } else {
-                            // Если не нашли, пробуем без слова "город"
-                            val alternativeAddress = address.replace("город ", "")
-                            searchManager.submit(
-                                alternativeAddress,
-                                Geometry.fromBoundingBox(MOSCOW_BOUNDS),
-                                searchOptions,
-                                object : Session.SearchListener {
-                                    override fun onSearchResponse(response: Response) {
-                                        val result = response.collection.children.firstOrNull()?.obj
-                                        val point = result?.geometry?.firstOrNull()?.point
-                                        
-                                        if (point != null && 
-                                            point.latitude in 55.48992..55.957565 &&
-                                            point.longitude in 37.319331..37.907543) {
-                                            println("\nGeocoding SUCCESS with alternative address")
-                                            println("Input address: $alternativeAddress")
-                                            println("Found location: ${result.name}")
-                                            println("Found address: ${result.descriptionText}")
-                                            println("Coordinates: $point")
-                                            continuation.resume(point)
-                                        } else {
-                                            println("\nGeocoding FAILED")
-                                            println("Input address: $address")
-                                            println("Alternative address: $alternativeAddress")
-                                            println("No results found")
-                                            continuation.resume(null)
-                                        }
-                                    }
+                        }
 
-                                    override fun onSearchError(error: Error) {
-                                        println("\nGeocoding ERROR")
-                                        println("Input address: $address")
-                                        println("Error: $error")
-                                        continuation.resume(null)
-                                    }
-                                }
-                            )
+                        override fun onSearchError(error: Error) {
+                            if (!isLastAttempt) {
+                                println("Search error for variant: $addressToGeocode, trying next...")
+                            } else {
+                                println("\nGeocoding ERROR on last attempt")
+                                println("Input address: $addressToGeocode")
+                                println("Error: $error")
+                                continuation.resume(null)
+                            }
                         }
                     }
-
-                    override fun onSearchError(error: Error) {
-                        println("\nGeocoding ERROR")
-                        println("Input address: $address")
-                        println("Error: $error")
-                        continuation.resume(null)
-                    }
+                )
+            }
+            
+            // Запускаем цепочку попыток геокодинга
+            fun tryNextVariant(index: Int) {
+                if (index < addressVariants.size) {
+                    val isLast = index == addressVariants.size - 1
+                    submitGeocodingRequest(addressVariants[index], isLast)
+                } else {
+                    println("All variants failed, couldn't geocode address: $address")
+                    continuation.resume(null)
                 }
-            )
-
+            }
+            
+            // Начинаем с первого варианта
+            tryNextVariant(0)
+            
             continuation.invokeOnCancellation {
                 session?.cancel()
             }
@@ -348,89 +383,54 @@ fun MapScreen(
             println("\n=== Starting geocoding process for ${orders.size} orders ===\n")
             println("Moscow bounds: ${MOSCOW_BOUNDS.southWest} to ${MOSCOW_BOUNDS.northEast}")
             
-            geocodedOrders = orders.map { order ->
+            val results = mutableListOf<Pair<Order, Point?>>()
+            
+            orders.forEach { order ->
                 println("\nProcessing order ${order.orderNumber}")
                 println("Original address: ${order.deliveryAddress}")
                 
+                // Проверяем, есть ли уже корректные координаты
                 if (order.latitude != null && order.longitude != null) {
                     // Проверяем, что координаты не являются дефолтными (центр Москвы)
                     if (order.latitude != 55.751574 && order.longitude != 37.573856) {
                         println("Using existing coordinates: ${order.latitude}, ${order.longitude}")
-                        order to Point(order.latitude, order.longitude)
+                        results.add(order to Point(order.latitude, order.longitude))
+                        return@forEach
                     } else {
                         println("Found default coordinates, will try geocoding")
-                        null
                     }
                 } else {
                     println("No coordinates found, will try geocoding")
-                    null
                 }
-            }.filterNotNull() + orders.filter { order ->
-                (order.latitude == null || order.longitude == null ||
-                 (order.latitude == 55.751574 && order.longitude == 37.573856))
-            }.map { order ->
+                
+                // Пробуем геокодировать адрес
                 val formattedAddress = formatAddress(order.deliveryAddress)
-                println("\nProcessing Order ${order.orderNumber}")
-                println("Original address: ${order.deliveryAddress}")
                 println("Formatted address: $formattedAddress")
                 
-                val point = suspendCancellableCoroutine<Point?> { continuation ->
-                    var session: Session? = null
+                val point = geocodeAddress(formattedAddress)
+                
+                if (point != null) {
+                    println("Successfully geocoded address for order ${order.orderNumber}")
+                    results.add(order to point)
+                    
+                    // Сохраняем координаты в базе данных
                     try {
-                        val options = SearchOptions().apply {
-                            searchTypes = SearchType.GEO.value
-                            resultPageSize = 1
-                            geometry = true
-                            disableSpellingCorrection = false
-                            origin = "DMApp-Courier"
-                        }
-
-                        session = searchManager.submit(
-                            formattedAddress,
-                            Geometry.fromBoundingBox(MOSCOW_BOUNDS),
-                            options,
-                            object : Session.SearchListener {
-                                override fun onSearchResponse(response: Response) {
-                                    val result = response.collection.children.firstOrNull()?.obj
-                                    val point = result?.geometry?.firstOrNull()?.point
-                                    
-                                    if (point != null) {
-                                        println("\nGeocoding SUCCESS for order ${order.orderNumber}")
-                                        println("Input address: $formattedAddress")
-                                        println("Found location: ${result.name}")
-                                        println("Found address: ${result.descriptionText}")
-                                        println("Coordinates: $point")
-                                        continuation.resume(point) { session?.cancel() }
-                                    } else {
-                                        println("\nGeocoding FAILED for order ${order.orderNumber}")
-                                        println("Input address: $formattedAddress")
-                                        println("No results found")
-                                        continuation.resume(null) { session?.cancel() }
-                                    }
-                                }
-
-                                override fun onSearchError(error: Error) {
-                                    println("\nGeocoding ERROR for order ${order.orderNumber}")
-                                    println("Input address: $formattedAddress")
-                                    println("Error: $error")
-                                    continuation.resume(null) { session?.cancel() }
-                                }
-                            }
+                        viewModel.updateOrderCoordinates(
+                            order.id, 
+                            point.latitude, 
+                            point.longitude
                         )
-
-                        continuation.invokeOnCancellation {
-                            session?.cancel()
-                        }
+                        println("Saved coordinates to database for order ${order.orderNumber}")
                     } catch (e: Exception) {
-                        println("\nEXCEPTION during geocoding for order ${order.orderNumber}")
-                        println("Input address: $formattedAddress")
-                        println("Error: ${e.message}")
-                        e.printStackTrace()
-                        continuation.resume(null) { session?.cancel() }
+                        println("Failed to save coordinates: ${e.message}")
                     }
+                } else {
+                    println("Failed to geocode address for order ${order.orderNumber}")
+                    results.add(order to null)
                 }
-                order to point
             }
+            
+            geocodedOrders = results
             
             println("\n=== Geocoding process completed ===\n")
             println("Successfully geocoded: ${geocodedOrders.count { it.second != null }}")

@@ -53,6 +53,12 @@ class OrderViewModel(private val repository: OrderRepository) : ViewModel() {
         }
     }
 
+    fun updateOrderCoordinates(orderId: Long, latitude: Double, longitude: Double) {
+        viewModelScope.launch {
+            repository.updateOrderCoordinates(orderId, latitude, longitude)
+        }
+    }
+
     class Factory(private val repository: OrderRepository) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass.isAssignableFrom(OrderViewModel::class.java)) {

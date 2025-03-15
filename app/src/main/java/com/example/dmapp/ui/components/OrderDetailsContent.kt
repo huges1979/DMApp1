@@ -44,6 +44,27 @@ fun OrderDetailsContent(
     // Получаем контекст для запуска Intent'ов
     val context = LocalContext.current
     
+    // Функция для копирования номера заказа и открытия сайта
+    fun copyOrderNumberAndOpenSite() {
+        // Копируем номер заказа в буфер обмена
+        val clipboardManager = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val clip = android.content.ClipData.newPlainText("Номер заказа", order.externalOrderNumber)
+        clipboardManager.setPrimaryClip(clip)
+        
+        // Показываем короткое сообщение пользователю
+        android.widget.Toast.makeText(
+            context, 
+            "Номер заказа ${order.externalOrderNumber} скопирован",
+            android.widget.Toast.LENGTH_SHORT
+        ).show()
+        
+        // Открываем сайт курьера
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(
+            "https://courier.detmir.ru/?settings=eyJDbGVhbiI6dHJ1ZSwiQ2FzaFdlYkJhc2VVcmwiOiJodHRwOi8vMTcyLjE2LjQ0LjExNyIsIlNob3dJbnN0YWxsTWVzc2FnZSI6ZmFsc2UsIkN1cnJlbmN5U3ltYm9sIjoiXHUyMEJEIiwiT3JkZXJBY2Nlc3NDb2RlVGltZW91dCI6MzAsIkRlZmF1bHRPcmRlcklkUHJlZml4IjoiU1NTU1MiLCJBbGxvd0RlbGV0ZU9ubHlLbVByb2R1Y3QiOnRydWV9"
+        ))
+        context.startActivity(intent)
+    }
+    
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -68,7 +89,10 @@ fun OrderDetailsContent(
         Spacer(modifier = Modifier.height(12.dp))
 
         // Адрес
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
             Icon(
                 Icons.Default.Place,
                 contentDescription = null,
@@ -78,8 +102,43 @@ fun OrderDetailsContent(
             Text(
                 text = order.deliveryAddress,
                 style = MaterialTheme.typography.bodyLarge,
-                fontSize = 16.sp
+                fontSize = 16.sp,
+                modifier = Modifier.weight(1f)
             )
+            
+            // Иконка для открытия Яндекс Навигатора
+            IconButton(
+                onClick = {
+                    if (order.latitude != null && order.longitude != null) {
+                        // Открываем Яндекс Навигатор с маршрутом
+                        val uri = Uri.parse("yandexnavi://build_route_on_map?lat_to=${order.latitude}&lon_to=${order.longitude}")
+                        val intent = Intent(Intent.ACTION_VIEW, uri)
+                        
+                        // Проверяем, установлен ли Яндекс Навигатор
+                        if (intent.resolveActivity(context.packageManager) != null) {
+                            context.startActivity(intent)
+                        } else {
+                            // Если не установлен, открываем Яндекс Карты в браузере
+                            val webUri = Uri.parse("https://yandex.ru/maps/?mode=routes&rtext=~${order.latitude},${order.longitude}")
+                            val webIntent = Intent(Intent.ACTION_VIEW, webUri)
+                            context.startActivity(webIntent)
+                        }
+                    } else {
+                        // Если координат нет, пытаемся открыть по адресу
+                        val escapedAddress = Uri.encode(order.deliveryAddress)
+                        val webUri = Uri.parse("https://yandex.ru/maps/?mode=search&text=$escapedAddress")
+                        val webIntent = Intent(Intent.ACTION_VIEW, webUri)
+                        context.startActivity(webIntent)
+                    }
+                },
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    Icons.Default.Navigation,
+                    contentDescription = "Открыть навигатор",
+                    tint = Color(0xFF2196F3) // Синий цвет для навигации
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -326,6 +385,13 @@ fun OrderDetailsContent(
                         OrderStatus.COMPLETED -> OrderStatus.NEW
                         else -> OrderStatus.NEW
                     }
+                    
+                    // Если новый статус - COMPLETED, копируем номер и открываем сайт
+                    if (nextStatus == OrderStatus.COMPLETED) {
+                        copyOrderNumberAndOpenSite()
+                    }
+                    
+                    // Вызываем обработчик смены статуса
                     onStatusChange(order, nextStatus)
                 },
                 modifier = Modifier.fillMaxWidth(),

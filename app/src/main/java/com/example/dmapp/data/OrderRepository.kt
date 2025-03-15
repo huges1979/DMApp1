@@ -24,29 +24,122 @@ class OrderRepository(private val orderDao: OrderDao) {
     val completedOrdersCount = orderDao.getCompletedOrdersCount()
 
     private suspend fun geocodeAddress(address: String): Point? {
-        return suspendCancellableCoroutine { continuation ->
+        // Константы для границ Москвы
+        val MOSCOW_BOUNDS = BoundingBox(
+            Point(55.48992, 37.319331), // юго-западная граница Москвы
+            Point(55.957565, 37.907543) // северо-восточная граница Москвы
+        )
+        
+        println("\n=== Starting geocoding for address: $address ===")
+        
+        // Создаем различные варианты адреса для геокодинга
+        val formattedAddress = formatAddress(address)
+        
+        // Варианты адреса для попыток геокодинга
+        val addressVariants = mutableListOf<String>()
+        addressVariants.add(formattedAddress) // Основной формат
+        
+        // Вариант без слова "город"
+        addressVariants.add(formattedAddress.replace("город Москва, ", ""))
+        
+        // Альтернативные форматы для домов с корпусами
+        if (formattedAddress.contains("корпус")) {
+            // Вариант с заменой "корпус" на "к" 
+            addressVariants.add(formattedAddress.replace("корпус", "к"))
+            
+            // Вариант с номером дома и корпусом через дефис
+            val withHyphen = formattedAddress.replace(
+                Regex("дом (\\d+) корпус (\\d+)"), 
+                "дом $1-$2"
+            )
+            addressVariants.add(withHyphen)
+            
+            // Вариант без слова "дом" 
+            val withoutHouse = formattedAddress.replace(
+                Regex("дом (\\d+) корпус (\\d+)"), 
+                "$1 корпус $2"
+            )
+            addressVariants.add(withoutHouse)
+            
+            // Вариант через слеш
+            val withSlash = formattedAddress.replace(
+                Regex("дом (\\d+) корпус (\\d+)"), 
+                "дом $1/$2"
+            )
+            addressVariants.add(withSlash)
+        }
+        
+        // Простой вариант адреса (без деталей о доме)
+        val simpleAddress = address.replace(Regex("(?i)д\\.?\\s*\\d+.*$"), "").trim()
+        if (simpleAddress.length > 10) { // Убедимся, что у нас остается достаточно информации
+            addressVariants.add("город Москва, $simpleAddress")
+        }
+        
+        println("Will try geocoding with following address variants:")
+        addressVariants.forEachIndexed { index, variant -> 
+            println("$index: $variant") 
+        }
+        
+        // Пробуем каждый вариант адреса
+        for (addressToGeocode in addressVariants) {
             try {
-                val searchSession = searchManager.submit(
-                    address,
-                    Geometry.fromPoint(Point(55.751574, 37.573856)),
-                    SearchOptions(),
-                    object : Session.SearchListener {
-                        override fun onSearchResponse(response: Response) {
-                            val point = response.collection.children.firstOrNull()?.obj?.geometry?.get(0)?.point
-                            continuation.resume(point)
-                        }
-
-                        override fun onSearchError(error: Error) {
-                            println("Search error: ${error}")
-                            continuation.resume(null)
-                        }
+                val point = suspendCancellableCoroutine<Point?> { continuation ->
+                    val searchOptions = SearchOptions().apply {
+                        searchTypes = SearchType.GEO.value
+                        resultPageSize = 1
+                        geometry = true
+                        disableSpellingCorrection = false
                     }
-                )
+                    
+                    println("Trying to geocode: $addressToGeocode")
+                    val session = searchManager.submit(
+                        addressToGeocode,
+                        Geometry.fromBoundingBox(MOSCOW_BOUNDS),
+                        searchOptions,
+                        object : Session.SearchListener {
+                            override fun onSearchResponse(response: Response) {
+                                val result = response.collection.children.firstOrNull()?.obj
+                                val pt = result?.geometry?.firstOrNull()?.point
+                                
+                                if (pt != null && 
+                                    pt.latitude in 55.48992..55.957565 &&
+                                    pt.longitude in 37.319331..37.907543) {
+                                    println("\nGeocoding SUCCESS")
+                                    println("Input address: $addressToGeocode")
+                                    println("Found location: ${result.name}")
+                                    println("Found address: ${result.descriptionText}")
+                                    println("Coordinates: $pt")
+                                    continuation.resume(pt)
+                                } else {
+                                    println("No valid result found for variant: $addressToGeocode")
+                                    continuation.resume(null)
+                                }
+                            }
+
+                            override fun onSearchError(error: Error) {
+                                println("Search error for variant: $addressToGeocode, error: $error")
+                                continuation.resume(null)
+                            }
+                        }
+                    )
+                    
+                    continuation.invokeOnCancellation {
+                        session.cancel()
+                    }
+                }
+                
+                if (point != null) {
+                    println("Found coordinates: $point for address: $address using variant: $addressToGeocode")
+                    return point
+                }
             } catch (e: Exception) {
+                println("Exception during geocoding: ${e.message}")
                 e.printStackTrace()
-                continuation.resume(null)
             }
         }
+        
+        println("All variants failed, couldn't geocode address: $address")
+        return null
     }
 
     suspend fun importOrders(text: String): ImportResult {
@@ -60,12 +153,16 @@ class OrderRepository(private val orderDao: OrderDao) {
         // Разбиваем текст на отдельные заказы и создаем временный список
         val ordersToImport = mutableListOf<Order>()
         
+        println("\n=== Starting order import process ===")
+        
         // Сначала собираем все заказы и проверяем на дубликаты
         text.split("\n\n")
             .filter { it.trim().startsWith("Заказ") }
             .forEach { orderText ->
                 val orderMap = parseOrderText(orderText)
                 val externalOrderNumber = orderMap["orderNumber"] ?: return@forEach
+                
+                println("Processing order $externalOrderNumber")
 
                 // Проверяем на дубликаты
                 val existingOrder = orderDao.findDuplicateOrder(externalOrderNumber)
@@ -73,9 +170,21 @@ class OrderRepository(private val orderDao: OrderDao) {
                     // Парсим время доставки
                     val (startTime, endTime) = parseDeliveryInterval(orderMap["deliveryInterval"] ?: "")
                     
-                    // Геокодируем адрес
+                    // Извлекаем адрес доставки
                     val deliveryAddress = orderMap["deliveryAddress"] ?: ""
+                    println("Delivery address: $deliveryAddress")
+                    
+                    // Геокодируем адрес
+                    println("Starting geocoding for address: $deliveryAddress")
                     val coordinates = geocodeAddress(deliveryAddress)
+                    
+                    if (coordinates != null) {
+                        println("Successfully geocoded address: $deliveryAddress")
+                        println("Coordinates: lat=${coordinates.latitude}, lng=${coordinates.longitude}")
+                    } else {
+                        println("Failed to geocode address: $deliveryAddress")
+                        println("Will use default coordinates (center of Moscow)")
+                    }
                     
                     // Создаем новый заказ (пока без номера)
                     val order = Order(
@@ -102,8 +211,10 @@ class OrderRepository(private val orderDao: OrderDao) {
                     
                     ordersToImport.add(order)
                     newOrders++
+                    println("Order $externalOrderNumber added for import")
                 } else {
                     duplicates++
+                    println("Order $externalOrderNumber is a duplicate, skipping")
                 }
             }
         
@@ -114,9 +225,11 @@ class OrderRepository(private val orderDao: OrderDao) {
         sortedOrders.forEach { order ->
             val orderWithNumber = order.copy(orderNumber = nextOrderNumber)
             orderDao.insert(orderWithNumber)
+            println("Saved order ${orderWithNumber.externalOrderNumber} with number $nextOrderNumber")
             nextOrderNumber++
         }
         
+        println("=== Import completed: $newOrders new orders, $duplicates duplicates ===\n")
         return ImportResult(newOrders, duplicates)
     }
 
@@ -218,24 +331,148 @@ class OrderRepository(private val orderDao: OrderDao) {
 
     suspend fun updateOrderNotes(orderId: Long, notes: String) {
         val order = orderDao.findOrderById(orderId) ?: return
-        orderDao.update(order.copy(notes = notes))
+        val updatedOrder = order.copy(notes = notes)
+        orderDao.update(updatedOrder)
+    }
+
+    suspend fun updateOrderCoordinates(orderId: Long, latitude: Double, longitude: Double) {
+        val order = orderDao.findOrderById(orderId) ?: return
+        val updatedOrder = order.copy(latitude = latitude, longitude = longitude)
+        orderDao.update(updatedOrder)
+        println("Updated coordinates for order ${order.orderNumber}: lat=$latitude, lng=$longitude")
     }
 
     fun formatAddress(address: String): String {
-        return address.trim()
-            .replace("\\s+".toRegex(), " ")
-            .replace(Regex("(?i)г\\.?\\s*москва[,\\s]*"), "")
+        // Сначала нормализуем текст
+        var formatted = address.trim()
+            .replace("\\s+".toRegex(), " ") // Заменяем множественные пробелы на один
+        
+        // Приводим слово "Москва" к стандартному виду
+        formatted = formatted.replace(Regex("(?i)г\\.?\\s*москва[,\\s]*"), "")
             .replace(Regex("(?i)москва[,\\s]*"), "")
             .replace(Regex("(?i)город\\s+"), "")
             .replace(Regex("(?i)гор\\.?\\s*"), "")
-            .replace(Regex("(?i)дом\\s+(\\d)"), "д. $1")
-            .replace(Regex("(?i)д\\s+(\\d)"), "д. $1")
-            .replace(Regex("(?i)улица\\s+"), "ул. ")
-            .replace(Regex("(?i)ул\\s+"), "ул. ")
-            .replace(Regex("(?i)проспект\\s+"), "пр-т ")
-            .replace(Regex("(?i)пр\\s+"), "пр-т ")
-            .let { addr -> "Москва, $addr" }
-            .trim()
+        
+        // Удаляем лишнюю информацию
+        formatted = formatted.replace(Regex("(?i)подъезд\\s*№?\\s*\\d+"), "")
+            .replace(Regex("(?i)этаж\\s*\\d+"), "")
+            .replace(Regex("(?i)эт\\.?\\s*\\d+"), "")
+            .replace(Regex("(?i)кв\\.?\\s*\\d+[а-я]?"), "")
+            .replace(Regex("(?i)квартира\\s*\\d+[а-я]?"), "")
+        
+        // Нормализуем типы улиц
+        formatted = formatted.replace(Regex("(?i)улица\\s+"), "улица ")
+            .replace(Regex("(?i)ул\\s+"), "улица ")
+            .replace(Regex("(?i)ул\\.\\s+"), "улица ")
+            .replace(Regex("(?i)проспект\\s+"), "проспект ")
+            .replace(Regex("(?i)пр\\s+"), "проспект ")
+            .replace(Regex("(?i)пр-т\\s+"), "проспект ")
+            .replace(Regex("(?i)пр\\.\\s+"), "проспект ")
+            .replace(Regex("(?i)переулок\\s+"), "переулок ")
+            .replace(Regex("(?i)пер\\s+"), "переулок ")
+            .replace(Regex("(?i)пер\\.\\s+"), "переулок ")
+            .replace(Regex("(?i)бульвар\\s+"), "бульвар ")
+            .replace(Regex("(?i)бул\\s+"), "бульвар ")
+            .replace(Regex("(?i)бул\\.\\s+"), "бульвар ")
+            .replace(Regex("(?i)б-р\\s+"), "бульвар ")
+            .replace(Regex("(?i)шоссе\\s+"), "шоссе ")
+            .replace(Regex("(?i)ш\\s+"), "шоссе ")
+            .replace(Regex("(?i)ш\\.\\s+"), "шоссе ")
+            .replace(Regex("(?i)площадь\\s+"), "площадь ")
+            .replace(Regex("(?i)пл\\s+"), "площадь ")
+            .replace(Regex("(?i)пл\\.\\s+"), "площадь ")
+            .replace(Regex("(?i)набережная\\s+"), "набережная ")
+            .replace(Regex("(?i)наб\\s+"), "набережная ")
+            .replace(Regex("(?i)наб\\.\\s+"), "набережная ")
+        
+        // Особый случай: Обработка улицы и номера дома как наиболее важных компонентов
+        var streetMatch: MatchResult? = null
+        val streetPatterns = listOf(
+            Regex("(?i)(улица|проспект|переулок|бульвар|шоссе|площадь|набережная)\\s+[А-Яа-я\\s-]+"),
+            Regex("(?i)([А-Яа-я]+)\\s+(улица|проспект|переулок|бульвар|шоссе|площадь|набережная)")
+        )
+        
+        for (pattern in streetPatterns) {
+            streetMatch = pattern.find(formatted)
+            if (streetMatch != null) break
+        }
+        
+        val streetPart = streetMatch?.value?.trim() ?: ""
+        
+        // Обрабатываем номера домов с корпусами
+        val housePatterns = listOf(
+            Regex("(?i)дом\\s*(\\d+)\\s*корпус\\s*(\\d+)"),
+            Regex("(?i)дом\\s*(\\d+)\\s*корп\\.?\\s*(\\d+)"),
+            Regex("(?i)дом\\s*(\\d+)\\s*к\\s*(\\d+)"),
+            Regex("(?i)д\\.?\\s*(\\d+)\\s*корпус\\s*(\\d+)"),
+            Regex("(?i)д\\.?\\s*(\\d+)\\s*корп\\.?\\s*(\\d+)"),
+            Regex("(?i)д\\.?\\s*(\\d+)\\s*к\\s*(\\d+)"),
+            Regex("(?i)д\\s*(\\d+)\\s*к\\s*(\\d+)"),
+            Regex("(?i)(\\d+)\\s*к\\s*(\\d+)"),
+            Regex("(?i)(\\d+)\\s*корп\\.?\\s*(\\d+)")
+        )
+        
+        var houseWithCorpus = ""
+        
+        for (pattern in housePatterns) {
+            val match = pattern.find(formatted)
+            if (match != null) {
+                val houseNumber = match.groupValues[1]
+                val corpusNumber = match.groupValues[2]
+                houseWithCorpus = "дом $houseNumber корпус $corpusNumber"
+                break
+            }
+        }
+        
+        // Если не нашли дом с корпусом, ищем обычный номер дома
+        if (houseWithCorpus.isEmpty()) {
+            val singleHousePatterns = listOf(
+                Regex("(?i)дом\\s*(\\d+)"),
+                Regex("(?i)д\\.?\\s*(\\d+)"),
+                Regex("(?i)д\\s*(\\d+)"),
+                Regex("(?i)\\b(\\d+)\\b") // Просто число, которое может быть номером дома
+            )
+            
+            for (pattern in singleHousePatterns) {
+                val match = pattern.find(formatted)
+                if (match != null) {
+                    houseWithCorpus = "дом ${match.groupValues[1]}"
+                    break
+                }
+            }
+        }
+        
+        // Проверяем на строения
+        val buildingPatterns = listOf(
+            Regex("(?i)\\bстр\\.?\\s*(\\d+)\\b"),
+            Regex("(?i)\\bстроение\\s*(\\d+)\\b")
+        )
+        
+        var buildingPart = ""
+        
+        for (pattern in buildingPatterns) {
+            val match = pattern.find(formatted)
+            if (match != null) {
+                buildingPart = "строение ${match.groupValues[1]}"
+                break
+            }
+        }
+        
+        // Соединяем все компоненты вместе
+        val addressComponents = mutableListOf<String>()
+        if (streetPart.isNotEmpty()) addressComponents.add(streetPart)
+        if (houseWithCorpus.isNotEmpty()) addressComponents.add(houseWithCorpus)
+        if (buildingPart.isNotEmpty()) addressComponents.add(buildingPart)
+        
+        val resultAddress = if (addressComponents.isNotEmpty()) {
+            addressComponents.joinToString(", ")
+        } else {
+            // Если не удалось разобрать адрес, оставляем исходный
+            formatted
+        }
+        
+        // Добавляем "город Москва" в начало адреса
+        return "город Москва, $resultAddress".trim()
     }
 }
 

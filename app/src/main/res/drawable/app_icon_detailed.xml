@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Светло-голубой фон -->
+    <path
+        android:fillColor="#E6F2F9"
+        android:pathData="M0,0h108v108h-108z" />
+    
+    <!-- Красный квадрат со скругленными углами -->
+    <path
+        android:fillColor="#FF4D36"
+        android:pathData="M23,30 C25,30 27,30 29,32 L40,37 C42,39 42,41 40,43 L29,48 C27,50 25,50 23,48 L12,43 C10,41 10,39 12,37 L23,32 C23,30 23,30 23,30 Z"
+        android:rotation="-15" />
+    
+    <!-- Желтый квадрат со скругленными углами -->
+    <path
+        android:fillColor="#FFCC33"
+        android:pathData="M45,30 C47,30 49,30 51,32 L62,37 C64,39 64,41 62,43 L51,48 C49,50 47,50 45,48 L34,43 C32,41 32,39 34,37 L45,32 C45,30 45,30 45,30 Z"
+        android:rotation="-10" />
+    
+    <!-- Зеленый квадрат со скругленными углами -->
+    <path
+        android:fillColor="#33CC66"
+        android:pathData="M67,30 C69,30 71,30 73,32 L84,37 C86,39 86,41 84,43 L73,48 C71,50 69,50 67,48 L56,43 C54,41 54,39 56,37 L67,32 C67,30 67,30 67,30 Z"
+        android:rotation="-5" />
+    
+    <!-- Синий квадрат со скругленными углами -->
+    <path
+        android:fillColor="#33AAFF"
+        android:pathData="M89,30 C91,30 93,30 95,32 L106,37 C108,39 108,41 106,43 L95,48 C93,50 91,50 89,48 L78,43 C76,41 76,39 78,37 L89,32 C89,30 89,30 89,30 Z"
+        android:rotation="0" />
+    
+    <!-- Добавим тени для объемности -->
+    <path
+        android:fillColor="#00000044"
+        android:pathData="M23,30 C25,30 27,30 29,32 L40,37 C42,39 42,41 40,43 L29,48 C27,50 25,50 23,48 L12,43 C10,41 10,39 12,37 L23,32 C23,30 23,30 23,30 Z"
+        android:rotation="-15" 
+        android:translateX="2"
+        android:translateY="2" />
+    
+    <path
+        android:fillColor="#00000044"
+        android:pathData="M45,30 C47,30 49,30 51,32 L62,37 C64,39 64,41 62,43 L51,48 C49,50 47,50 45,48 L34,43 C32,41 32,39 34,37 L45,32 C45,30 45,30 45,30 Z"
+        android:rotation="-10"
+        android:translateX="2"
+        android:translateY="2" />
+    
+    <path
+        android:fillColor="#00000044"
+        android:pathData="M67,30 C69,30 71,30 73,32 L84,37 C86,39 86,41 84,43 L73,48 C71,50 69,50 67,48 L56,43 C54,41 54,39 56,37 L67,32 C67,30 67,30 67,30 Z"
+        android:rotation="-5"
+        android:translateX="2"
+        android:translateY="2" />
+    
+    <path
+        android:fillColor="#00000044"
+        android:pathData="M89,30 C91,30 93,30 95,32 L106,37 C108,39 108,41 106,43 L95,48 C93,50 91,50 89,48 L78,43 C76,41 76,39 78,37 L89,32 C89,30 89,30 89,30 Z"
+        android:rotation="0"
+        android:translateX="2"
+        android:translateY="2" />
+    
+    <!-- Стилизованные буквы DM в центре иконки -->
+    <path
+        android:fillColor="#333333"
+        android:pathData="M34,78 Q34,63, 34,63 Q34,63, 44,63 Q46,63, 48,64 Q50,65, 51,67 Q52,69, 51,71 Q50,73, 48,74 Q46,75, 44,75 L38,75 L38,78 L34,78 Z M38,72 L44,72 Q45,72, 46,71 Q47,70, 47,69 Q47,68, 46,67 Q45,66, 44,66 L38,66 L38,72 Z"
+        android:strokeWidth="0.5"
+        android:strokeColor="#333333" />
+    
+    <path
+        android:fillColor="#333333"
+        android:pathData="M53,78 Q53,63, 53,63 L57,63 L57,68 L66,68 L66,63 L70,63 L70,78 L66,78 L66,72 L57,72 L57,78 L53,78 Z"
+        android:strokeWidth="0.5"
+        android:strokeColor="#333333" />
+</vector> 

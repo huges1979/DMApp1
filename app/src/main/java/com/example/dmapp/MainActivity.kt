@@ -97,7 +97,8 @@ class MainActivity : ComponentActivity() {
                             onDeleteResultDismiss = { viewModel.clearDeleteResult() },
                             onStatusUpdate = { order, newStatus: OrderStatus ->
                                 viewModel.updateOrderStatus(order, newStatus)
-                            }
+                            },
+                            viewModel = viewModel
                         )
 
                         if (showImportDialog) {
