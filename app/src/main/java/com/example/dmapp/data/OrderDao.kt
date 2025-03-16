@@ -34,4 +34,10 @@ interface OrderDao {
 
     @Query("SELECT * FROM orders WHERE id = :orderId LIMIT 1")
     suspend fun findOrderById(orderId: Long): Order?
+
+    @Query("UPDATE orders SET notes = :notes WHERE id = :orderId")
+    suspend fun updateOrderNotes(orderId: Long, notes: String)
+    
+    @Query("UPDATE orders SET latitude = :latitude, longitude = :longitude WHERE id = :orderId")
+    suspend fun updateOrderCoordinates(orderId: Long, latitude: Double, longitude: Double)
 } 

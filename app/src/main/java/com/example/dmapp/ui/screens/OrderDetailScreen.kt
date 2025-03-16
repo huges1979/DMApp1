@@ -23,13 +23,18 @@ fun OrderDetailScreen(
     onNavigateBack: () -> Unit,
     onEditOrder: (Order) -> Unit = {}
 ) {
-    // Больше не используем диалоговое окно для редактирования
-    var editedOrder by remember { mutableStateOf(order) }
+    // Локальное состояние для отслеживания актуальной версии заказа
+    var currentOrder by remember { mutableStateOf(order) }
+    
+    // Эффект для обновления локального состояния при изменении входного параметра
+    LaunchedEffect(order) {
+        currentOrder = order
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Заказ №${order.orderNumber}") },
+                title = { Text("Заказ №${currentOrder.orderNumber}") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
@@ -43,9 +48,9 @@ fun OrderDetailScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // Используем тот же компонент OrderDetailsContent, что и в MapScreen
+            // Используем компонент OrderDetailsContent с актуальной версией заказа
             OrderDetailsContent(
-                order = order,
+                order = currentOrder,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
@@ -53,12 +58,16 @@ fun OrderDetailScreen(
                 onStatusChange = { updatedOrder, newStatus ->
                     // Создаем копию заказа с новым статусом
                     val orderWithNewStatus = updatedOrder.copy(status = newStatus)
+                    // Обновляем локальное состояние
+                    currentOrder = orderWithNewStatus
                     // Вызываем обработчик редактирования заказа
                     onEditOrder(orderWithNewStatus)
                 },
                 onNotesChange = { updatedOrder, newNotes ->
                     // Создаем копию заказа с новыми заметками
                     val orderWithNewNotes = updatedOrder.copy(notes = newNotes)
+                    // Обновляем локальное состояние
+                    currentOrder = orderWithNewNotes
                     // Вызываем обработчик редактирования заказа
                     onEditOrder(orderWithNewNotes)
                 }

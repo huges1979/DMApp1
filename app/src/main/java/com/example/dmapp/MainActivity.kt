@@ -125,11 +125,14 @@ class MainActivity : ComponentActivity() {
                                     // Например, обновление статуса или заметок
                                     if (editedOrder.status != it.status) {
                                         viewModel.updateOrderStatus(editedOrder, editedOrder.status)
-                                    }
-                                    if (editedOrder.notes != it.notes) {
+                                        // Закрываем экран только при изменении статуса
+                                        navController.popBackStack()
+                                    } else if (editedOrder.notes != it.notes) {
+                                        // При изменении заметок просто обновляем данные, но не закрываем экран
                                         viewModel.updateOrderNotes(editedOrder.id, editedOrder.notes ?: "")
+                                        // Обновляем сохраненный заказ в навигационном стеке
+                                        navController.currentBackStackEntry?.savedStateHandle?.set("order", editedOrder)
                                     }
-                                    navController.popBackStack()
                                 }
                             )
                         }

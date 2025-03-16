@@ -155,12 +155,42 @@ class OrderRepository(private val orderDao: OrderDao) {
         
         println("\n=== Starting order import process ===")
         
-        // Сначала собираем все заказы и проверяем на дубликаты
-        text.split("\n\n")
-            .filter { it.trim().startsWith("Заказ") }
-            .forEach { orderText ->
+        // Улучшенное разбиение текста на заказы
+        // Ищем все строки, содержащие "Заказ" с помощью регулярного выражения
+        val orderRegex = "(?:^|\\n)\\s*(Заказ\\s*(?:№)?\\s*\\d+.+?)(?=\\n\\s*Заказ\\s*(?:№)?\\s*\\d+|$)".toRegex(RegexOption.DOT_MATCHES_ALL)
+        val orderMatches = orderRegex.findAll(text)
+        
+        val allOrders = orderMatches.map { it.groupValues[1].trim() }.toList()
+        println("Found ${allOrders.size} orders in text")
+        
+        // Если не найдено ни одного заказа, пробуем запасной вариант разделения
+        val processedOrders = if (allOrders.isEmpty()) {
+            println("No orders found using regex, trying fallback method")
+            text.split("\n\n")
+                .filter { it.trim().isNotEmpty() }
+                .filter { order ->
+                    val containsOrderWord = order.contains("Заказ", ignoreCase = true)
+                    if (!containsOrderWord) {
+                        println("Skipping text block without 'Заказ' keyword: ${order.take(50)}...")
+                    }
+                    containsOrderWord
+                }
+        } else {
+            allOrders
+        }
+        
+        println("Processing ${processedOrders.size} orders")
+        
+        // Обрабатываем каждый заказ
+        processedOrders.forEach { orderText ->
+            try {
                 val orderMap = parseOrderText(orderText)
-                val externalOrderNumber = orderMap["orderNumber"] ?: return@forEach
+                val externalOrderNumber = orderMap["orderNumber"]
+                
+                if (externalOrderNumber == null) {
+                    println("WARNING: Could not extract order number from text. First 100 chars: ${orderText.take(100)}...")
+                    return@forEach
+                }
                 
                 println("Processing order $externalOrderNumber")
 
@@ -216,7 +246,11 @@ class OrderRepository(private val orderDao: OrderDao) {
                     duplicates++
                     println("Order $externalOrderNumber is a duplicate, skipping")
                 }
+            } catch (e: Exception) {
+                println("ERROR processing order text: ${e}")
+                println("Problematic text: ${orderText.take(200)}...")
             }
+        }
         
         // Сортируем заказы по времени доставки
         val sortedOrders = ordersToImport.sortedBy { it.deliveryTimeStart }
@@ -236,8 +270,9 @@ class OrderRepository(private val orderDao: OrderDao) {
     private fun parseOrderText(text: String): Map<String, String> {
         val result = mutableMapOf<String, String>()
         
-        // Extract order number
-        "Заказ (\\d+):".toRegex().find(text)?.let {
+        // Extract order number - улучшенное распознавание номера
+        val orderNumberRegex = "Заказ\\s*(?:№)?\\s*(\\d+)".toRegex()
+        orderNumberRegex.find(text)?.let {
             result["orderNumber"] = it.groupValues[1]
         }
 
@@ -335,6 +370,9 @@ class OrderRepository(private val orderDao: OrderDao) {
         orderDao.update(updatedOrder)
     }
 
+    /**
+     * Обновляет координаты заказа в базе данных
+     */
     suspend fun updateOrderCoordinates(orderId: Long, latitude: Double, longitude: Double) {
         val order = orderDao.findOrderById(orderId) ?: return
         val updatedOrder = order.copy(latitude = latitude, longitude = longitude)

@@ -43,7 +43,7 @@ fun MainScreen(
     if (showMap) {
         MapScreen(
             orders = activeOrders + completedOrders,
-            onNavigateBack = { showMap = false },
+            onBackClick = { showMap = false },
             onStatusUpdate = onStatusUpdate,
             viewModel = viewModel
         )
