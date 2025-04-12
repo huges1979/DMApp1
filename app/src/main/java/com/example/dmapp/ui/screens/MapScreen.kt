@@ -1,15 +1,20 @@
 package com.example.dmapp.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.location.Location
+import android.content.Context
+import android.location.LocationManager
 import android.os.Bundle
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -48,13 +53,110 @@ import androidx.compose.material3.SheetState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Divider
 import com.example.dmapp.ui.components.OrderDetailsContent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import com.yandex.mapkit.map.MapObjectTapListener
 import com.example.dmapp.ui.OrderViewModel
 import com.yandex.mapkit.map.IconStyle
+import androidx.compose.foundation.clickable
+import androidx.core.app.ActivityCompat
+import android.app.Activity
+import android.location.LocationManager as AndroidLocationManager
+import com.yandex.mapkit.location.Location as YandexLocation
+import com.yandex.mapkit.location.LocationListener
+import com.yandex.mapkit.location.LocationManager as YandexLocationManager
+import com.yandex.mapkit.location.LocationStatus
+import com.yandex.mapkit.user_location.UserLocationLayer
+import com.yandex.mapkit.user_location.UserLocationView
+import com.yandex.mapkit.user_location.UserLocationObjectListener
+import com.yandex.mapkit.map.Map as YandexMap
+import com.yandex.mapkit.map.PlacemarkMapObject
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.LocationOn
+import android.graphics.PointF
+
+// Определяем временные интервалы как enum на уровне файла
+enum class DeliveryTimeRange(val title: String, val startHour: Int, val endHour: Int) {
+    MORNING("11:00-15:00", 11, 15),
+    AFTERNOON("14:00-17:00", 14, 17),
+    EVENING("17:00-20:00", 17, 20),
+    NIGHT("20:00-23:00", 20, 23)
+}
+
+// Вспомогательный объект для работы с картой
+object MapUtils {
+    // Функция для создания круглого битмапа для точки местоположения пользователя
+    fun createCircleBitmap(color: Int, size: Int): Bitmap {
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        paint.color = color
+        canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint)
+        return bitmap
+    }
+    
+    // Функция для создания большой красной точки местоположения пользователя
+    fun createUserLocationBitmap(): Bitmap {
+        val size = 64 // Увеличенный размер (еще больше)
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        
+        // Рисуем внешний круг с полупрозрачностью (область точности)
+        val outerCirclePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        outerCirclePaint.color = android.graphics.Color.argb(70, 255, 0, 0) // Полупрозрачный красный
+        canvas.drawCircle(size / 2f, size / 2f, size / 2f, outerCirclePaint)
+        
+        // Рисуем яркий внутренний круг
+        val innerCirclePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        innerCirclePaint.color = android.graphics.Color.RED
+        canvas.drawCircle(size / 2f, size / 2f, size / 3f, innerCirclePaint)
+        
+        // Рисуем белую окантовку для лучшей видимости
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        borderPaint.color = android.graphics.Color.WHITE
+        borderPaint.style = Paint.Style.STROKE
+        borderPaint.strokeWidth = 4f // Более толстая окантовка
+        canvas.drawCircle(size / 2f, size / 2f, size / 3f - 2f, borderPaint)
+        
+        return bitmap
+    }
+    
+    // Функция для создания стрелки направления
+    fun createArrowBitmap(color: Int, size: Int): Bitmap {
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        paint.color = color
+        
+        val path = Path()
+        // Рисуем простую стрелку, направленную вверх
+        path.moveTo(size / 2f, 0f)  // Вершина стрелки
+        path.lineTo(0f, size.toFloat())  // Левый угол основания
+        path.lineTo(size.toFloat(), size.toFloat())  // Правый угол основания
+        path.close()
+        
+        canvas.drawPath(path, paint)
+        return bitmap
+    }
+    
+    // Вспомогательная функция для проверки наличия маркера в коллекции объектов карты
+    fun isMarkerValid(marker: PlacemarkMapObject?): Boolean {
+        if (marker == null) return false
+        
+        try {
+            // Пробуем обратиться к свойству маркера, чтобы проверить его валидность
+            val unused = marker.geometry
+            return true
+        } catch (e: Exception) {
+            println("Маркер недействителен: ${e.message}")
+            return false
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,20 +166,211 @@ fun MapScreen(
     onStatusUpdate: ((Order, OrderStatus) -> Unit)? = null,
     viewModel: OrderViewModel
 ) {
-    val selectedOrderState = remember { mutableStateOf<Order?>(null) }
-    var selectedOrder by selectedOrderState // Используем одну переменную состояния
+    // Флаг для отслеживания готовности карты
+    var isMapReady by remember { mutableStateOf(false) }
+    // Для показа ошибки, если такая возникнет при инициализации карты
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    // Для отображения деталей заказа при нажатии
+    var showOrderDetails by remember { mutableStateOf(false) }
+    var selectedOrder by remember { mutableStateOf<Order?>(null) }
+    // Для управления диалогом фильтра времени
+    var showTimeFilterDialog by remember { mutableStateOf(false) }
     
-    // Получаем контекст для создания карты
+    // Контекст для Toast и других Android API
     val context = LocalContext.current
+
+    // Получаем контекст для создания карты
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val scope = rememberCoroutineScope()
     var mapView by remember { mutableStateOf<MapView?>(null) }
-    var isMapReady by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    
+    // Переменные для работы с местоположением пользователя
+    var userLocationLayer by remember { mutableStateOf<UserLocationLayer?>(null) }
+    var locationPermissionGranted by remember { mutableStateOf(false) }
+    var userLocation by remember { mutableStateOf<Point?>(null) }
+    // Переменная для собственного маркера местоположения пользователя
+    var userLocationMarker by remember { mutableStateOf<PlacemarkMapObject?>(null) }
+    
+    // Функция для запроса разрешений на доступ к местоположению
+    fun requestLocationPermissions() {
+        if (context is Activity) {
+            ActivityCompat.requestPermissions(
+                context,
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                ),
+                100
+            )
+            println("Запрошены разрешения на доступ к местоположению")
+        } else {
+            println("Контекст не является Activity, не могу запросить разрешения")
+        }
+    }
+    
+    // Функция для получения текущего местоположения
+    fun getCurrentLocation() {
+        if (ActivityCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED || ActivityCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            locationPermissionGranted = true
+            try {
+                val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as AndroidLocationManager
+                val isGpsEnabled = locationManager.isProviderEnabled(AndroidLocationManager.GPS_PROVIDER)
+                val isNetworkEnabled = locationManager.isProviderEnabled(AndroidLocationManager.NETWORK_PROVIDER)
+                
+                println("GPS включен: $isGpsEnabled, Сеть включена: $isNetworkEnabled")
+                
+                if (!isGpsEnabled && !isNetworkEnabled) {
+                    Toast.makeText(context, "Включите службы геолокации на устройстве", Toast.LENGTH_LONG).show()
+                    return
+                }
+                
+                // Пробуем получить местоположение через GPS
+                var location: Location? = null
+                if (isGpsEnabled) {
+                    location = locationManager.getLastKnownLocation(AndroidLocationManager.GPS_PROVIDER)
+                    println("GPS местоположение: $location")
+                }
+                
+                // Если через GPS не получилось, пробуем через сеть
+                if (location == null && isNetworkEnabled) {
+                    location = locationManager.getLastKnownLocation(AndroidLocationManager.NETWORK_PROVIDER)
+                    println("Сетевое местоположение: $location")
+                }
+                
+                if (location != null) {
+                    userLocation = Point(location.latitude, location.longitude)
+                    println("Установлено местоположение пользователя: $userLocation")
+                    
+                    // Сначала проверяем, что mapView не была уничтожена
+                    val currentMapView = mapView
+                    if (currentMapView == null) {
+                        println("MapView был уничтожен, не обновляем местоположение")
+                        return
+                    }
+                    
+                    // Обновляем или создаем маркер местоположения пользователя
+                    val map = currentMapView.mapWindow?.map
+                    if (map != null) {
+                        // Создаем локальную копию userLocation для безопасного использования
+                        val currentLocation = userLocation
+                        if (currentLocation != null) {
+                            try {
+                                if (userLocationMarker == null) {
+                                    // Создаем новый маркер
+                                    userLocationMarker = map.mapObjects.addPlacemark().apply {
+                                        geometry = currentLocation
+                                        setIcon(ImageProvider.fromBitmap(MapUtils.createUserLocationBitmap()))
+                                        userData = "userLocation"
+                                        println("Создан маркер местоположения пользователя")
+                                    }
+                                } else {
+                                    // Обновляем существующий маркер
+                                    userLocationMarker?.let { marker ->
+                                        if (MapUtils.isMarkerValid(marker)) {
+                                            marker.geometry = currentLocation
+                                            println("Обновлен маркер местоположения пользователя")
+                                        } else {
+                                            println("Маркер был удален или недействителен, создаем новый")
+                                            userLocationMarker = map.mapObjects.addPlacemark().apply {
+                                                geometry = currentLocation
+                                                setIcon(ImageProvider.fromBitmap(MapUtils.createUserLocationBitmap()))
+                                                userData = "userLocation"
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                println("Ошибка при обновлении маркера: ${e.message}")
+                                e.printStackTrace()
+                            }
+                        }
+                    }
+                    
+                    // Центрируем карту на местоположении пользователя, если оно доступно
+                    try {
+                        userLocation?.let { location ->
+                            currentMapView.mapWindow?.map?.move(
+                                CameraPosition(
+                                    location,
+                                    15.0f,
+                                    0.0f,
+                                    0.0f
+                                ),
+                                Animation(Animation.Type.SMOOTH, 1f),
+                                null
+                            )
+                            Toast.makeText(context, "Карта центрирована на вашем местоположении", Toast.LENGTH_SHORT).show()
+                        } ?: run {
+                            Toast.makeText(context, "Местоположение недоступно. Проверьте, включена ли геолокация на устройстве", Toast.LENGTH_LONG).show()
+                        }
+                    } catch (e: Exception) {
+                        println("Ошибка при центрировании карты: ${e.message}")
+                        e.printStackTrace()
+                    }
+                } else {
+                    println("Не удалось получить местоположение")
+                    Toast.makeText(context, "Не удалось получить местоположение", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                println("Ошибка при получении местоположения: ${e.message}")
+                e.printStackTrace()
+                Toast.makeText(context, "Ошибка: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            println("Нет разрешений на доступ к местоположению")
+            locationPermissionGranted = false
+            requestLocationPermissions()
+        }
+    }
+    
+    // Проверяем, есть ли разрешение на доступ к местоположению при инициализации
+    LaunchedEffect(Unit) {
+        locationPermissionGranted = ActivityCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED || ActivityCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        
+        println("Статус разрешения на местоположение: $locationPermissionGranted")
+        
+        if (locationPermissionGranted) {
+            getCurrentLocation()
+        } else {
+            requestLocationPermissions()
+        }
+    }
     
     println("MapScreen initialized with selectedOrder = $selectedOrder")
     val searchManager = remember { SearchFactory.getInstance().createSearchManager(SearchManagerType.COMBINED) }
     var geocodedOrders by remember { mutableStateOf<List<Pair<Order, Point?>>>(emptyList()) }
+
+    // Состояния для фильтрации по времени
+    var selectedTimeRanges by remember { mutableStateOf(setOf<DeliveryTimeRange>()) }
+    
+    // Функция для фильтрации заказов по временным интервалам
+    fun isOrderInSelectedTimeRanges(order: Order): Boolean {
+        // Если ничего не выбрано, показываем все заказы
+        if (selectedTimeRanges.isEmpty()) {
+            return true
+        }
+        
+        // Получаем час начала доставки заказа
+        val orderStartHour = order.deliveryTimeStart.hour
+        
+        // Проверяем, попадает ли заказ хотя бы в один из выбранных интервалов
+        return selectedTimeRanges.any { timeRange ->
+            orderStartHour in timeRange.startHour until timeRange.endHour
+        }
+    }
 
     // Константы для границ Москвы
     val MOSCOW_BOUNDS = BoundingBox(
@@ -211,7 +504,18 @@ fun MapScreen(
 
     // Форматирование адреса для геокодинга
     fun formatAddress(address: String): String {
-        return address
+        // Сначала запоминаем, был ли адрес с буквой ё
+        val containsYo = address.contains("ё", ignoreCase = true)
+        
+        // Обрабатываем специфичные случаи
+        if (address.contains("новочер", ignoreCase = true) && 
+            (address.contains("мушинск", ignoreCase = true) || address.contains("мушенск", ignoreCase = true)) &&
+            address.contains("17", ignoreCase = true)) {
+            println("Обнаружен адрес на Новочерёмушинской улице, применяю специальное форматирование")
+            return "Москва, Новочерёмушинская улица, дом 17"
+        }
+        
+        val result = address
             // Удаляем лишнюю информацию
             .replace(Regex("(?i)подъезд\\s*№?\\s*\\d+"), "")
             .replace(Regex("(?i)эт\\.?\\s*\\d+"), "")
@@ -268,6 +572,13 @@ fun MapScreen(
                 }
             }
             .trim()
+            
+        // Возвращаем букву "ё" в адрес, если она была изначально (для улучшения распознавания)
+        return if (containsYo && result.contains("новочеремушинская", ignoreCase = true)) {
+            result.replace("новочеремушинская", "новочерёмушинская", ignoreCase = true)
+        } else {
+            result
+        }
     }
 
     // Функция для обработки специальных случаев адресов
@@ -298,7 +609,18 @@ fun MapScreen(
                 Point(55.69266, 37.53172),
                 
             Regex(".*(мичуринский|мичуринском).*(проспект|пр|просп)?.*(дом|д|д\\.|дом)? ?31.*", RegexOption.IGNORE_CASE) to 
-                Point(55.69674, 37.49809)
+                Point(55.69674, 37.49809),
+                
+            // Новочерёмушинская улица, д.17 - улучшенное регулярное выражение
+            Regex(".*новочер[её]мушинск[а-я]+.*(улица|ул|ул\\.)?.*(?:дом|д|д\\.|дом)?\\s*17.*", RegexOption.IGNORE_CASE) to 
+                Point(55.68022, 37.59315),
+                
+            // Дополнительные варианты для Новочерёмушинской улицы
+            Regex(".*черёмуш.*17.*", RegexOption.IGNORE_CASE) to 
+                Point(55.68022, 37.59315),
+                
+            Regex(".*черемуш.*17.*", RegexOption.IGNORE_CASE) to 
+                Point(55.68022, 37.59315)
         )
         
         // Проверяем, соответствует ли адрес одному из известных проблемных адресов
@@ -307,6 +629,16 @@ fun MapScreen(
                 println("Found special case address match: $address -> $point")
                 return Pair(address, point)
             }
+        }
+        
+        // Явно проверяем наличие Новочерёмушинской улицы
+        if ((address.contains("новочерёмушинск", ignoreCase = true) || 
+             address.contains("новочеремушинск", ignoreCase = true) || 
+             address.contains("черёмуш", ignoreCase = true) || 
+             address.contains("черемуш", ignoreCase = true)) && 
+            address.contains("17")) {
+            println("Found exact address match for Novocheremushkinskaya 17: $address")
+            return Pair(address, Point(55.68022, 37.59315))
         }
         
         // Явно проверяем конкретные адреса
@@ -324,11 +656,37 @@ fun MapScreen(
     suspend fun geocodeAddress(address: String): Point? = suspendCancellableCoroutine { continuation ->
         var session: Session? = null
         try {
-            // Сначала проверяем, является ли адрес особым случаем
-            val (_, specialPoint) = handleSpecialAddresses(address)
-            if (specialPoint != null) {
-                println("Using pre-defined coordinates for special address: $address")
-                continuation.resume(specialPoint)
+            // Создаем адрес с буквой "ё" и без неё для улучшенной обработки
+            val withYo = address.replace("е", "ё")
+            val withoutYo = address.replace("ё", "е")
+            
+            // Функция для проверки специальных случаев для обоих вариантов написания
+            fun checkSpecialCase(addr: String): Point? {
+                // Сначала проверяем, является ли адрес особым случаем
+                val (_, specialPoint) = handleSpecialAddresses(addr)
+                if (specialPoint != null) {
+                    println("Using pre-defined coordinates for special address: $addr")
+                    return specialPoint
+                }
+                
+                // Проверяем наличие Новочерёмушинской улицы
+                if ((addr.contains("новочер", ignoreCase = true) && 
+                     (addr.contains("мушинск", ignoreCase = true) || 
+                      addr.contains("мушенск", ignoreCase = true) || 
+                      addr.contains("черёмуш", ignoreCase = true) || 
+                      addr.contains("черемуш", ignoreCase = true))) &&
+                    addr.contains("17", ignoreCase = true)) {
+                    println("Быстрое определение координат для Новочерёмушинской улицы, д.17")
+                    return Point(55.68022, 37.59315)
+                }
+                
+                return null
+            }
+            
+            // Проверяем оба варианта написания адреса
+            val point = checkSpecialCase(address) ?: checkSpecialCase(withYo) ?: checkSpecialCase(withoutYo)
+            if (point != null) {
+                continuation.resume(point)
                 return@suspendCancellableCoroutine
             }
             
@@ -346,6 +704,16 @@ fun MapScreen(
             // Варианты адреса для попыток геокодинга
             val addressVariants = mutableListOf<String>()
             addressVariants.add(formattedAddress) // Основной формат
+            
+            // Вариант с буквой ё, если в адресе содержится "черемуш"
+            if (formattedAddress.contains("черемуш", ignoreCase = true)) {
+                addressVariants.add(formattedAddress.replace("черемуш", "черёмуш", ignoreCase = true))
+            }
+            
+            // Вариант с буквой е, если в адресе содержится "черёмуш"
+            if (formattedAddress.contains("черёмуш", ignoreCase = true)) {
+                addressVariants.add(formattedAddress.replace("черёмуш", "черемуш", ignoreCase = true))
+            }
             
             // Вариант без слова "город"
             addressVariants.add(formattedAddress.replace("город Москва, ", ""))
@@ -388,6 +756,21 @@ fun MapScreen(
             if (formattedAddress.contains("мичуринский", ignoreCase = true)) {
                 addressVariants.add("Москва, Мичуринский проспект, ${extractHouseNumber(formattedAddress)}")
                 addressVariants.add("Москва, Раменки, Мичуринский проспект, ${extractHouseNumber(formattedAddress)}")
+            }
+            
+            // Специальный случай для Новочерёмушинской улицы
+            if (formattedAddress.contains("новочер", ignoreCase = true) && 
+                (formattedAddress.contains("мушинск", ignoreCase = true) || formattedAddress.contains("мушенск", ignoreCase = true))) {
+                addressVariants.add("Москва, Новочерёмушинская улица, 17")
+                addressVariants.add("Москва, район Черёмушки, Новочерёмушинская улица, 17")
+                addressVariants.add("Москва, район Академический, Новочерёмушинская улица, 17")
+                addressVariants.add("Москва, ЮЗАО, Новочерёмушинская улица, 17")
+                
+                // Добавляем варианты без буквы ё
+                addressVariants.add("Москва, Новочеремушинская улица, 17")
+                addressVariants.add("Москва, район Черемушки, Новочеремушинская улица, 17")
+                addressVariants.add("Москва, район Академический, Новочеремушинская улица, 17")
+                addressVariants.add("Москва, ЮЗАО, Новочеремушинская улица, 17")
             }
             
             // Альтернативные форматы для домов с корпусами
@@ -539,7 +922,7 @@ fun MapScreen(
     
     // Функция для нормализации адреса перед сравнением
     fun normalizeAddress(address: String): String {
-        return address.lowercase()
+        var normalizedAddress = address.lowercase()
             // Удаляем информацию о подъездах, этажах, квартирах
             .replace(Regex("(подъезд|эт|этаж|кв)[\\s.№]*\\d+", RegexOption.IGNORE_CASE), "")
             // Заменяем "ё" на "е"
@@ -551,6 +934,32 @@ fun MapScreen(
             // Удаляем лишние пробелы
             .replace(Regex("\\s+"), " ")
             .trim()
+            
+        // Создаем два варианта для поиска в словаре: с "ё" и с "е"
+        // Специальная обработка для случаев с "ё"
+        if (address.contains("черёмуш", ignoreCase = true) || address.contains("черемуш", ignoreCase = true)) {
+            // Для улучшения поиска в словаре, проверим оба варианта
+            val withYo = normalizedAddress.replace("черемуш", "черёмуш")
+            val withoutYo = normalizedAddress.replace("черёмуш", "черемуш")
+            
+            // Если адрес содержит улицу с номером 17, используем специальный формат
+            if (withYo.contains("17") || withoutYo.contains("17")) {
+                println("Нормализация специального адреса (Новочерёмушинская)")
+                if (withYo.contains("новочерёмуш")) return "новочерёмушинская, 17"
+                if (withoutYo.contains("новочеремуш")) return "новочеремушинская, 17"
+            }
+        }
+        
+        // Специальная обработка для адресов с "намёткина/наметкина"
+        if (address.contains("намёткин", ignoreCase = true) || address.contains("наметкин", ignoreCase = true)) {
+            // Если адрес содержит улицу с номером 11, используем специальный формат
+            if (normalizedAddress.contains("11")) {
+                println("Нормализация специального адреса (Намёткина)")
+                return "наметкина, 11"
+            }
+        }
+        
+        return normalizedAddress
     }
     
     // Новый метод для хранения известных адресов и их координат
@@ -596,7 +1005,19 @@ fun MapScreen(
             "мичуринский проспект, 31" to Point(55.69674, 37.49809),
             "мичуринский, 31" to Point(55.69674, 37.49809),
             "мичуринский 31" to Point(55.69674, 37.49809),
-            "д.31 мичуринский" to Point(55.69674, 37.49809)
+            "д.31 мичуринский" to Point(55.69674, 37.49809),
+            
+            // Адреса на Новочерёмушинской улице
+            "москва, новочерёмушинская улица, 17" to Point(55.68022, 37.59315),
+            "москва, новочеремушинская улица, 17" to Point(55.68022, 37.59315),
+            "новочерёмушинская улица, 17" to Point(55.68022, 37.59315),
+            "новочеремушинская улица, 17" to Point(55.68022, 37.59315),
+            "новочерёмушинская, 17" to Point(55.68022, 37.59315),
+            "новочеремушинская, 17" to Point(55.68022, 37.59315),
+            "новочерёмушинская 17" to Point(55.68022, 37.59315),
+            "новочеремушинская 17" to Point(55.68022, 37.59315),
+            "д.17 новочерёмушинская" to Point(55.68022, 37.59315),
+            "д.17 новочеремушинская" to Point(55.68022, 37.59315)
         )
     }
     
@@ -736,11 +1157,28 @@ fun MapScreen(
         }
     }
 
+    // Правильно управляем жизненным циклом MapView
     DisposableEffect(Unit) {
+        // Вызываем onStart при создании экрана
+        try {
+            mapView?.onStart()
+            println("MapView onStart вызван")
+        } catch (e: Exception) {
+            println("Ошибка при вызове onStart: ${e.message}")
+            e.printStackTrace()
+        }
+        
         onDispose {
+            // Освобождаем все ресурсы при уничтожении экрана
             try {
-                mapView?.onStop()
+                println("Останавливаем MapView")
+                userLocationMarker = null // Освобождаем ссылку на маркер
+                mapView?.mapWindow?.map?.mapObjects?.clear() // Очищаем все объекты с карты
+                mapView?.onStop() // Останавливаем MapView
+                mapView = null // Освобождаем ссылку на MapView
+                println("MapView успешно остановлен и освобожден")
             } catch (e: Exception) {
+                println("Ошибка при освобождении MapView: ${e.message}")
                 e.printStackTrace()
             }
         }
@@ -770,13 +1208,74 @@ fun MapScreen(
         }
     }
 
+    // Отфильтрованный список заказов по времени доставки
+    val filteredOrdersWithPoints = remember(geocodedOrders, selectedTimeRanges) {
+        if (selectedTimeRanges.isEmpty()) {
+            geocodedOrders // Если фильтр не применен, возвращаем все заказы
+        } else {
+            // Фильтруем заказы по выбранным временным интервалам
+            geocodedOrders.filter { (order, _) ->
+                isOrderInSelectedTimeRanges(order)
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Карта заказов") },
+                title = { Text("Карта доставок") },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "Назад"
+                        )
+                    }
+                },
+                actions = {
+                    // Кнопка для центрирования карты на местоположении пользователя
+                    IconButton(
+                        onClick = {
+                            try {
+                                if (locationPermissionGranted) {
+                                    // Проверка на доступность mapView
+                                    if (mapView == null) {
+                                        Toast.makeText(context, "Карта не инициализирована", Toast.LENGTH_SHORT).show()
+                                        return@IconButton
+                                    }
+                                    
+                                    // Обновляем местоположение
+                                    getCurrentLocation()
+                                    
+                                    // Центрируем карту на местоположении пользователя, если оно доступно
+                                    // (эта логика уже встроена в getCurrentLocation())
+                                } else {
+                                    Toast.makeText(context, "Необходимо разрешение на доступ к местоположению", Toast.LENGTH_LONG).show()
+                                    requestLocationPermissions()
+                                }
+                            } catch (e: Exception) {
+                                println("Ошибка при нажатии на кнопку местоположения: ${e.message}")
+                                e.printStackTrace()
+                                Toast.makeText(context, "Произошла ошибка: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LocationOn,
+                            contentDescription = "Моё местоположение"
+                        )
+                    }
+                    
+                    // Кнопка для фильтрации по временным интервалам
+                    IconButton(
+                        onClick = { 
+                            showTimeFilterDialog = true 
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FilterList,
+                            contentDescription = "Фильтр по времени доставки"
+                        )
                     }
                 }
             )
@@ -809,6 +1308,7 @@ fun MapScreen(
                     try {
                         MapView(context).also { view ->
                             mapView = view
+                            // Начальное положение карты - центр Москвы
                             view.mapWindow.map.move(
                                 CameraPosition(
                                     Point(55.751574, 37.573856),
@@ -817,6 +1317,22 @@ fun MapScreen(
                                     0.0f
                                 )
                             )
+                            
+                            // Включаем отображение местоположения пользователя, если есть разрешение
+                            if (locationPermissionGranted) {
+                                try {
+                                    // Запрашиваем текущее местоположение пользователя
+                                    getCurrentLocation()
+                                    
+                                    println("Запрошено местоположение пользователя")
+                                } catch (e: Exception) {
+                                    println("Ошибка при получении местоположения пользователя: ${e.message}")
+                                    e.printStackTrace()
+                                }
+                            } else {
+                                println("Нет разрешения на доступ к местоположению, не могу показать местоположение пользователя")
+                            }
+                            
                             isMapReady = true
                         }
                     } catch (e: Exception) {
@@ -828,11 +1344,25 @@ fun MapScreen(
                 modifier = Modifier.fillMaxSize(),
                 update = { view ->
                     try {
-                        val map = view.mapWindow.map
-                        map.mapObjects.clear()
+                        // Защита от доступа к уничтоженному объекту
+                        if (view.mapWindow == null) {
+                            println("MapView.mapWindow равен null, пропускаем обновление")
+                            return@AndroidView
+                        }
                         
-                        // Фильтруем и создаем список точек с возможностью модификации
-                        val adjustedPoints = geocodedOrders
+                        val map = view.mapWindow.map
+                        
+                        // Безопасная очистка объектов
+                        try {
+                            map.mapObjects.clear()
+                        } catch (e: Exception) {
+                            println("Ошибка при очистке объектов на карте: ${e.message}")
+                            e.printStackTrace()
+                            return@AndroidView
+                        }
+                        
+                        // Используем отфильтрованные заказы вместо всех заказов
+                        val adjustedPoints = filteredOrdersWithPoints
                             .filter { (order, _) -> order.status != OrderStatus.COMPLETED } // Фильтруем завершенные заказы
                             .mapNotNull { (order, point) ->
                                 point?.let { Triple(order, it, false) }
@@ -862,44 +1392,53 @@ fun MapScreen(
 
                         // Создаем коллекцию маркеров
                         val mapObjects = map.mapObjects
-                        mapObjects.clear()
-
+                        
                         // Отображаем маркеры с учетом скорректированных позиций
                         adjustedPoints.forEach { (order, point, _) ->
-                            // Создаем опции для маркера
-                            val markerBitmap = createMarkerBitmap(view.context, order)
-                            val iconStyle = IconStyle().apply {
-                                // Можно добавить дополнительные настройки стиля, если нужно
-                            }
-                            
-                            // Создаем маркер с использованием новых API
-                            val placemark = mapObjects.addPlacemark().apply {
-                                geometry = point
-                                setIcon(ImageProvider.fromBitmap(markerBitmap))
-                                userData = order // Сохраняем заказ в userData маркера
+                            try {
+                                // Создаем опции для маркера
+                                val markerBitmap = createMarkerBitmap(view.context, order)
                                 
-                                // Добавляем логирование для отслеживания создания маркера
-                                println("Created marker for order ${order.orderNumber} at $point")
+                                // Создаем маркер с использованием новых API
+                                val placemark = mapObjects.addPlacemark().apply {
+                                    geometry = point
+                                    setIcon(ImageProvider.fromBitmap(markerBitmap))
+                                    userData = order // Сохраняем заказ в userData маркера
+                                    
+                                    // Добавляем логирование для отслеживания создания маркера
+                                    println("Created marker for order ${order.orderNumber} at $point")
+                                }
+                                
+                                // Используем созданный слушатель нажатий
+                                try {
+                                    placemark.addTapListener(mapObjectTapListener)
+                                } catch (e: Exception) {
+                                    println("Ошибка при добавлении слушателя нажатий: ${e.message}")
+                                }
+                            } catch (e: Exception) {
+                                println("Ошибка при создании маркера для заказа ${order.orderNumber}: ${e.message}")
                             }
-                            
-                            // Используем созданный слушатель нажатий
-                            placemark.addTapListener(mapObjectTapListener)
                         }
 
                         // Центрируем карту на первой точке только при первой загрузке
-                        if (!isMapReady) {
-                            adjustedPoints.firstOrNull()?.let { (_, point, _) ->
-                                map.move(
-                                    CameraPosition(
-                                        point,
-                                        11.0f,
-                                        0.0f,
-                                        0.0f
-                                    ),
-                                    Animation(Animation.Type.SMOOTH, 0.3f),
-                                    null
-                                )
-                                isMapReady = true
+                        if (!isMapReady && adjustedPoints.isNotEmpty()) {
+                            try {
+                                adjustedPoints.firstOrNull()?.let { (_, point, _) ->
+                                    map.move(
+                                        CameraPosition(
+                                            point,
+                                            11.0f,
+                                            0.0f,
+                                            0.0f
+                                        ),
+                                        Animation(Animation.Type.SMOOTH, 0.3f),
+                                        null
+                                    )
+                                    isMapReady = true
+                                }
+                            } catch (e: Exception) {
+                                println("Ошибка при центрировании карты: ${e.message}")
+                                isMapReady = true // Помечаем как готовую, чтобы избежать повторных попыток
                             }
                         }
                     } catch (e: Exception) {
@@ -962,7 +1501,7 @@ fun MapScreen(
                                 }
                             }
                             
-                            HorizontalDivider()
+                            Divider()
                             
                             // Используем общий компонент OrderDetailsContent
                             OrderDetailsContent(
@@ -990,6 +1529,89 @@ fun MapScreen(
                         }
                     }
                 }
+            }
+
+            // Отображаем диалог фильтра времени если showTimeFilterDialog = true
+            if (showTimeFilterDialog) {
+                AlertDialog(
+                    onDismissRequest = { showTimeFilterDialog = false },
+                    title = { Text("Фильтр по времени доставки") },
+                    text = {
+                        Column {
+                            // Кнопка для выбора всех временных интервалов
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        // Если все выбраны, снимаем выбор со всех, иначе выбираем все
+                                        selectedTimeRanges = if (selectedTimeRanges.size == DeliveryTimeRange.values().size) {
+                                            emptySet()
+                                        } else {
+                                            DeliveryTimeRange.values().toSet()
+                                        }
+                                    }
+                                    .padding(vertical = 8.dp)
+                            ) {
+                                Checkbox(
+                                    checked = selectedTimeRanges.size == DeliveryTimeRange.values().size,
+                                    onCheckedChange = { checked ->
+                                        selectedTimeRanges = if (checked) {
+                                            DeliveryTimeRange.values().toSet()
+                                        } else {
+                                            emptySet()
+                                        }
+                                    }
+                                )
+                                Text("Выбрать все", modifier = Modifier.padding(start = 8.dp))
+                            }
+                            
+                            Divider()
+                            
+                            // Список временных интервалов
+                            DeliveryTimeRange.values().forEach { timeRange ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            selectedTimeRanges = if (selectedTimeRanges.contains(timeRange)) {
+                                                selectedTimeRanges - timeRange
+                                            } else {
+                                                selectedTimeRanges + timeRange
+                                            }
+                                        }
+                                        .padding(vertical = 8.dp)
+                                ) {
+                                    Checkbox(
+                                        checked = selectedTimeRanges.contains(timeRange),
+                                        onCheckedChange = { checked ->
+                                            selectedTimeRanges = if (checked) {
+                                                selectedTimeRanges + timeRange
+                                            } else {
+                                                selectedTimeRanges - timeRange
+                                            }
+                                        }
+                                    )
+                                    Text(timeRange.title, modifier = Modifier.padding(start = 8.dp))
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { showTimeFilterDialog = false }) {
+                            Text("Применить")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { 
+                            selectedTimeRanges = emptySet() 
+                            showTimeFilterDialog = false
+                        }) {
+                            Text("Сбросить")
+                        }
+                    }
+                )
             }
         }
     }

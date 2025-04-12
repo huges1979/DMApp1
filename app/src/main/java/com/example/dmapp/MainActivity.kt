@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -35,6 +36,7 @@ import com.example.dmapp.ui.components.OrdersList
 import com.example.dmapp.ui.screens.MainScreen
 import com.example.dmapp.ui.screens.MapScreen
 import com.example.dmapp.ui.screens.OrderDetailScreen
+import com.example.dmapp.ui.screens.StatisticsScreen
 import com.yandex.mapkit.MapKitFactory
 import com.yandex.mapkit.search.SearchFactory
 import kotlinx.coroutines.flow.StateFlow
@@ -65,7 +67,7 @@ class MainActivity : ComponentActivity() {
         // Initialize ViewModel
         viewModel = ViewModelProvider(
             this,
-            OrderViewModel.Factory(repository)
+            OrderViewModel.Factory(repository, applicationContext)
         )[OrderViewModel::class.java]
 
         setContent {
@@ -98,6 +100,9 @@ class MainActivity : ComponentActivity() {
                             onStatusUpdate = { order, newStatus: OrderStatus ->
                                 viewModel.updateOrderStatus(order, newStatus)
                             },
+                            onStatisticsClick = {
+                                navController.navigate("statistics")
+                            },
                             viewModel = viewModel
                         )
 
@@ -121,10 +126,10 @@ class MainActivity : ComponentActivity() {
                                     navController.popBackStack()
                                 },
                                 onEditOrder = { editedOrder ->
-                                    // Здесь можно добавить логику для редактирования заказа
                                     // Например, обновление статуса или заметок
                                     if (editedOrder.status != it.status) {
                                         viewModel.updateOrderStatus(editedOrder, editedOrder.status)
+                                        
                                         // Закрываем экран только при изменении статуса
                                         navController.popBackStack()
                                     } else if (editedOrder.notes != it.notes) {
@@ -136,6 +141,22 @@ class MainActivity : ComponentActivity() {
                                 }
                             )
                         }
+                    }
+                    
+                    composable("statistics") {
+                        val statistics by viewModel.statistics.collectAsState()
+                        StatisticsScreen(
+                            statistics = statistics,
+                            onNavigateBack = {
+                                navController.popBackStack()
+                            },
+                            onRebuildStatistics = {
+                                viewModel.rebuildStatistics()
+                            },
+                            onClearStatistics = {
+                                viewModel.clearStatistics()
+                            }
+                        )
                     }
                 }
             }

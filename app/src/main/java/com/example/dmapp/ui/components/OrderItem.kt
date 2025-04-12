@@ -7,6 +7,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Message
 import androidx.compose.material.icons.filled.Navigation
+import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Message
 import androidx.compose.material3.*
@@ -31,7 +33,8 @@ import java.time.format.DateTimeFormatter
 fun OrderItem(
     order: Order,
     onOrderClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onStatusUpdate: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val backgroundColor = when (order.status) {
@@ -238,18 +241,38 @@ fun OrderItem(
             // Дополнительная информация
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = "${order.weight} кг",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.Black
                 )
+                
+                // Добавляем кнопку изменения статуса заказа, если передан обработчик
+                onStatusUpdate?.let {
+                    IconButton(
+                        onClick = it
+                    ) {
+                        Icon(
+                            imageVector = when (order.status) {
+                                OrderStatus.COMPLETED -> Icons.Default.Refresh  // Для возврата в активные
+                                else -> Icons.Default.Done                     // Для отметки как выполненный
+                            },
+                            contentDescription = if (order.status == OrderStatus.COMPLETED) 
+                                "Вернуть в активные" else "Отметить как выполненный",
+                            tint = if (order.status == OrderStatus.COMPLETED) 
+                                Color(0xFF2196F3) else Color(0xFF4CAF50)
+                        )
+                    }
+                }
+                
                 Text(
                     text = "${order.orderAmount} ₽",
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Bold,
-                    color = if (order.isPrepaid) Color(0xFF2E7D32) else Color.Black
+                    color = Color.Black
                 )
             }
         }

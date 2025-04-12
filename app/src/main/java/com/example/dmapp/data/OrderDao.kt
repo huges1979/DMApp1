@@ -11,6 +11,9 @@ interface OrderDao {
     @Query("SELECT * FROM orders WHERE status = 'COMPLETED' ORDER BY deliveryTimeStart DESC")
     fun getCompletedOrders(): Flow<List<Order>>
 
+    @Query("SELECT * FROM orders WHERE status = 'COMPLETED'")
+    suspend fun getAllCompletedOrders(): List<Order>
+
     @Query("SELECT COUNT(*) FROM orders WHERE status != 'COMPLETED'")
     fun getActiveOrdersCount(): Flow<Int>
 
@@ -27,7 +30,7 @@ interface OrderDao {
     suspend fun update(order: Order)
 
     @Query("DELETE FROM orders WHERE status = 'COMPLETED'")
-    suspend fun deleteCompletedOrders()
+    suspend fun deleteCompletedOrders(): Int
 
     @Query("SELECT MAX(orderNumber) FROM orders")
     suspend fun getMaxOrderNumber(): Int?

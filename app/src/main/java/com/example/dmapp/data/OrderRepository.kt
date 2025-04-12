@@ -200,8 +200,18 @@ class OrderRepository(private val orderDao: OrderDao) {
                     // Парсим время доставки
                     val (startTime, endTime) = parseDeliveryInterval(orderMap["deliveryInterval"] ?: "")
                     
-                    // Извлекаем адрес доставки
-                    val deliveryAddress = orderMap["deliveryAddress"] ?: ""
+                    // Извлекаем адрес доставки и заменяем "ё" на "е"
+                    var deliveryAddress = orderMap["deliveryAddress"] ?: ""
+                    
+                    // Заменяем "ё" на "е" в адресе при импорте
+                    val addressWithoutYo = deliveryAddress.replace('ё', 'е').replace('Ё', 'Е')
+                    
+                    // Если была произведена замена, логируем её
+                    if (deliveryAddress != addressWithoutYo) {
+                        println("В адресе заменена 'ё' на 'е': '$deliveryAddress' -> '$addressWithoutYo'")
+                        deliveryAddress = addressWithoutYo
+                    }
+                    
                     println("Delivery address: $deliveryAddress")
                     
                     // Геокодируем адрес
@@ -297,7 +307,12 @@ class OrderRepository(private val orderDao: OrderDao) {
                     result["clientName"] = line.substringAfter("ФИО клиента:").trim()
                 }
                 line.startsWith("Адрес клиента:") -> {
-                    result["deliveryAddress"] = line.substringAfter("Адрес клиента:").trim()
+                    // Извлекаем адрес и заменяем "ё" на "е"
+                    val originalAddress = line.substringAfter("Адрес клиента:").trim()
+                    val addressWithoutYo = originalAddress.replace('ё', 'е').replace('Ё', 'Е')
+                    
+                    // Сохраняем адрес без "ё"
+                    result["deliveryAddress"] = addressWithoutYo
                 }
                 line.startsWith("Комментарий клиента:") -> {
                     result["clientComment"] = line.substringAfter("Комментарий клиента:").trim()
@@ -359,9 +374,11 @@ class OrderRepository(private val orderDao: OrderDao) {
     }
 
     suspend fun deleteCompletedOrders(): Int {
-        val count = orderDao.getCompletedOrdersCount().first()
-        orderDao.deleteCompletedOrders()
-        return count
+        return orderDao.deleteCompletedOrders()
+    }
+
+    suspend fun getAllCompletedOrders(): List<Order> {
+        return orderDao.getAllCompletedOrders()
     }
 
     suspend fun updateOrderNotes(orderId: Long, notes: String) {
@@ -381,9 +398,16 @@ class OrderRepository(private val orderDao: OrderDao) {
     }
 
     fun formatAddress(address: String): String {
-        // Сначала нормализуем текст
+        // Сначала нормализуем текст и заменяем "ё" на "е"
         var formatted = address.trim()
             .replace("\\s+".toRegex(), " ") // Заменяем множественные пробелы на один
+            .replace('ё', 'е') // Заменяем строчную "ё" на "е"
+            .replace('Ё', 'Е') // Заменяем заглавную "Ё" на "Е"
+
+        // Логируем, если была произведена замена
+        if (address.contains('ё') || address.contains('Ё')) {
+            println("В formatAddress заменена буква 'ё' на 'е': '$address' -> '$formatted'")
+        }
         
         // Приводим слово "Москва" к стандартному виду
         formatted = formatted.replace(Regex("(?i)г\\.?\\s*москва[,\\s]*"), "")

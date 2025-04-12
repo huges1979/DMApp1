@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -19,7 +20,18 @@ import com.example.dmapp.ui.OrderViewModel
 import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.graphics.Color
 
-@OptIn(ExperimentalMaterial3Api::class)
+// Добавляем импорты для функционала поиска
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun MainScreen(
     activeOrders: List<Order>,
@@ -34,11 +46,39 @@ fun MainScreen(
     onImportDialogDismiss: () -> Unit,
     onDeleteResultDismiss: () -> Unit,
     onStatusUpdate: ((Order, OrderStatus) -> Unit)? = null,
+    onStatisticsClick: () -> Unit,
     viewModel: OrderViewModel
 ) {
     var selectedTabIndex by remember { mutableStateOf(0) }
     var showMap by remember { mutableStateOf(false) }
     val tabs = listOf("Активные ($activeOrdersCount)", "Выполненные ($completedOrdersCount)")
+
+    // Состояния для поиска
+    var isSearchActive by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    
+    // Фильтруем заказы на основе поискового запроса
+    val filteredActiveOrders = remember(activeOrders, searchQuery) {
+        if (searchQuery.isEmpty()) {
+            activeOrders
+        } else {
+            activeOrders.filter { order ->
+                order.containsSearchQuery(searchQuery)
+            }
+        }
+    }
+    
+    val filteredCompletedOrders = remember(completedOrders, searchQuery) {
+        if (searchQuery.isEmpty()) {
+            completedOrders
+        } else {
+            completedOrders.filter { order ->
+                order.containsSearchQuery(searchQuery)
+            }
+        }
+    }
 
     if (showMap) {
         MapScreen(
@@ -51,26 +91,105 @@ fun MainScreen(
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("Заказы") },
-                    actions = {
-                        Button(
-                            onClick = { showMap = true },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary
-                            ),
-                            modifier = Modifier.padding(end = 8.dp)
-                        ) {
-                            Text(
-                                text = "Map",
-                                color = Color.White,
-                                style = MaterialTheme.typography.labelLarge
+                    title = {
+                        if (isSearchActive) {
+                            TextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(focusRequester),
+                                placeholder = { Text("Поиск заказов...") },
+                                singleLine = true,
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent,
+                                    disabledContainerColor = Color.Transparent,
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent
+                                ),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(
+                                    onSearch = {
+                                        keyboardController?.hide()
+                                    }
+                                ),
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Search,
+                                        contentDescription = "Поиск"
+                                    )
+                                },
+                                trailingIcon = {
+                                    if (searchQuery.isNotEmpty()) {
+                                        IconButton(
+                                            onClick = { searchQuery = "" }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Очистить"
+                                            )
+                                        }
+                                    }
+                                }
                             )
+                            
+                            // Запрашиваем фокус при активации поиска
+                            LaunchedEffect(Unit) {
+                                focusRequester.requestFocus()
+                            }
+                        } else {
+                            Text("Заказы")
                         }
-                        IconButton(onClick = onImportClick) {
-                            Icon(
-                                imageVector = Icons.Default.FileUpload,
-                                contentDescription = "Импорт заказов"
-                            )
+                    },
+                    actions = {
+                        if (!isSearchActive) {
+                            // Иконка поиска
+                            IconButton(onClick = { isSearchActive = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "Поиск"
+                                )
+                            }
+                            
+                            // Остальные действия
+                            IconButton(onClick = onStatisticsClick) {
+                                Icon(
+                                    imageVector = Icons.Default.BarChart,
+                                    contentDescription = "Статистика"
+                                )
+                            }
+                            Button(
+                                onClick = { showMap = true },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary
+                                ),
+                                modifier = Modifier.padding(end = 8.dp)
+                            ) {
+                                Text(
+                                    text = "Map",
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                            }
+                            IconButton(onClick = onImportClick) {
+                                Icon(
+                                    imageVector = Icons.Default.FileUpload,
+                                    contentDescription = "Импорт заказов"
+                                )
+                            }
+                        } else {
+                            // Кнопка для закрытия поиска
+                            IconButton(onClick = { 
+                                isSearchActive = false
+                                searchQuery = ""
+                                keyboardController?.hide()
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Закрыть поиск"
+                                )
+                            }
                         }
                     }
                 )
@@ -93,24 +212,33 @@ fun MainScreen(
                 when (selectedTabIndex) {
                     0 -> {
                         LazyColumn {
-                            items(activeOrders) { order ->
+                            items(filteredActiveOrders) { order ->
                                 OrderItem(
                                     order = order,
-                                    onOrderClick = { onOrderClick(order) }
+                                    onOrderClick = { onOrderClick(order) },
+                                    // Кнопка для быстрого изменения статуса
+                                    onStatusUpdate = {
+                                        val newStatus = if (order.status == OrderStatus.COMPLETED) {
+                                            OrderStatus.NEW
+                                        } else {
+                                            OrderStatus.COMPLETED
+                                        }
+                                        viewModel.updateOrderStatus(order, newStatus)
+                                    }
                                 )
                             }
                         }
                     }
                     1 -> {
                         LazyColumn {
-                            items(completedOrders) { order ->
+                            items(filteredCompletedOrders) { order ->
                                 OrderItem(
                                     order = order,
                                     onOrderClick = { onOrderClick(order) }
                                 )
                             }
                             item {
-                                if (completedOrders.isNotEmpty()) {
+                                if (filteredCompletedOrders.isNotEmpty()) {
                                     TextButton(
                                         onClick = onClearCompleted,
                                         modifier = Modifier
@@ -159,4 +287,22 @@ fun MainScreen(
             )
         }
     }
+}
+
+/**
+ * Проверяет, содержит ли заказ указанный поисковый запрос в любом из своих полей
+ */
+private fun Order.containsSearchQuery(query: String): Boolean {
+    if (query.isEmpty()) return true
+    
+    val normalizedQuery = query.lowercase().trim()
+    
+    return externalOrderNumber?.lowercase()?.contains(normalizedQuery) == true ||
+           orderNumber.toString().contains(normalizedQuery) ||
+           clientName.lowercase().contains(normalizedQuery) ||
+           clientPhone.lowercase().contains(normalizedQuery) ||
+           deliveryAddress.lowercase().contains(normalizedQuery) ||
+           clientComment?.lowercase()?.contains(normalizedQuery) == true ||
+           pickupLocation.lowercase().contains(normalizedQuery) ||
+           notes?.lowercase()?.contains(normalizedQuery) == true
 } 
