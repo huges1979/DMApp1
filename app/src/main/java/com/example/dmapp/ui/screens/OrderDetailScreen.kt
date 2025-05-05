@@ -1,5 +1,6 @@
 package com.example.dmapp.ui.screens
 
+import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -21,7 +22,9 @@ import com.example.dmapp.ui.components.OrderDetailsContent
 fun OrderDetailScreen(
     order: Order,
     onNavigateBack: () -> Unit,
-    onEditOrder: (Order) -> Unit = {}
+    onEditOrder: (Order) -> Unit = {},
+    onTakePhoto: (Order) -> Unit = {},
+    onViewPhoto: (Uri) -> Unit = {}
 ) {
     // Локальное состояние для отслеживания актуальной версии заказа
     var currentOrder by remember { mutableStateOf(order) }
@@ -70,6 +73,12 @@ fun OrderDetailScreen(
                     currentOrder = orderWithNewNotes
                     // Вызываем обработчик редактирования заказа
                     onEditOrder(orderWithNewNotes)
+                },
+                onTakePhoto = {
+                    onTakePhoto(currentOrder)
+                },
+                onPhotoClick = { photoUri ->
+                    onViewPhoto(photoUri)
                 }
             )
         }

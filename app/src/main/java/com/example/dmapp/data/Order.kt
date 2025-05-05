@@ -33,7 +33,8 @@ data class Order(
     var notes: String = "", // Заметки курьера
     val isCompleted: Boolean = false,
     val latitude: Double? = null,
-    val longitude: Double? = null
+    val longitude: Double? = null,
+    var photoUri: String? = null // Путь к фото заказа
 ) : Parcelable
 
 enum class OrderStatus {

@@ -26,6 +26,8 @@ import androidx.compose.ui.unit.sp
 import com.example.dmapp.data.DailyStatistics
 import com.example.dmapp.data.Order
 import com.example.dmapp.data.Statistics
+import com.example.dmapp.ui.OrderViewModel
+import com.example.dmapp.ui.components.OrderItem
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -40,58 +42,32 @@ fun StatisticsScreen(
     statistics: Statistics,
     onNavigateBack: () -> Unit,
     onRebuildStatistics: () -> Unit = {},
-    onClearStatistics: () -> Unit = {}
+    onClearStatistics: () -> Unit = {},
+    viewModel: OrderViewModel
 ) {
-    // Состояние для выбранной даты
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
-    
-    // Состояние для диалога подтверждения очистки статистики
     var showClearConfirmDialog by remember { mutableStateOf(false) }
+    val completedOrdersForDate by viewModel.completedOrdersForDate.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
+    val loadError by viewModel.loadError.collectAsState()
     
-    // Форматеры дат
-    val fullDateFormatter = DateTimeFormatter.ofPattern("d MMMM yyyy")
+    // Форматтеры для дат
     val shortDateFormatter = DateTimeFormatter.ofPattern("dd.MM")
+    val fullDateFormatter = DateTimeFormatter.ofLocalizedDate(FormatStyle.LONG)
     
-    // Получение статистики за выбранную дату
+    // Получаем статистику за выбранную дату
     val dateStats = statistics.getStatsForDay(selectedDate)
     
-    // Получение последних дат из статистики для чипсов
-    val recentDates = remember(statistics) {
-        statistics.dailyStats
-            .map { it.date }
-            .distinct()
-            .sortedByDescending { it }
-            .take(5)
+    // Получаем список последних 7 дней для отображения
+    val recentDates = remember {
+        List(7) { i ->
+            LocalDate.now().minusDays(i.toLong())
+        }
     }
     
-    // Контекст для DatePickerDialog
-    val context = LocalContext.current
-    
-    // Календарь для установки начальной даты в DatePickerDialog
-    val calendar = Calendar.getInstance()
-    calendar.set(selectedDate.year, selectedDate.monthValue - 1, selectedDate.dayOfMonth)
-    
-    // Создаем DatePickerDialog
-    val datePickerDialog = remember {
-        DatePickerDialog(
-            context,
-            { _, year, month, day ->
-                selectedDate = LocalDate.of(year, month + 1, day)
-            },
-            calendar.get(Calendar.YEAR),
-            calendar.get(Calendar.MONTH),
-            calendar.get(Calendar.DAY_OF_MONTH)
-        )
-    }
-    
-    // При изменении selectedDate обновляем datePickerDialog
+    // Загружаем заказы при изменении выбранной даты
     LaunchedEffect(selectedDate) {
-        calendar.set(selectedDate.year, selectedDate.monthValue - 1, selectedDate.dayOfMonth)
-        datePickerDialog.updateDate(
-            calendar.get(Calendar.YEAR),
-            calendar.get(Calendar.MONTH),
-            calendar.get(Calendar.DAY_OF_MONTH)
-        )
+        viewModel.getCompletedOrdersForDate(selectedDate)
     }
     
     Scaffold(
@@ -104,95 +80,23 @@ fun StatisticsScreen(
                     }
                 },
                 actions = {
-                    // Кнопка для очистки всей статистики
-                    IconButton(onClick = { showClearConfirmDialog = true }) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Очистить всю статистику"
-                        )
-                    }
-                    // Кнопка для восстановления статистики
                     IconButton(onClick = onRebuildStatistics) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Обновить статистику"
-                        )
+                        Icon(Icons.Default.Refresh, contentDescription = "Перестроить статистику")
+                    }
+                    IconButton(onClick = { showClearConfirmDialog = true }) {
+                        Icon(Icons.Default.Delete, contentDescription = "Очистить статистику")
                     }
                 }
             )
         }
-    ) { padding ->
+    ) { paddingValues ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(paddingValues)
+                .padding(horizontal = 16.dp)
         ) {
-            // Секция выбора даты
-            item {
-                Text(
-                    text = "Выберите дату",
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(vertical = 8.dp)
-                )
-                
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    // Поле выбора даты
-                    Surface(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(56.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .border(
-                                width = 1.dp,
-                                color = MaterialTheme.colorScheme.outline,
-                                shape = RoundedCornerShape(8.dp)
-                            )
-                            .clickable { datePickerDialog.show() },
-                        color = MaterialTheme.colorScheme.surface
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = selectedDate.format(fullDateFormatter),
-                                fontSize = 18.sp
-                            )
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.width(8.dp))
-                    
-                    // Кнопка "Сегодня"
-                    Button(
-                        onClick = { selectedDate = LocalDate.now() },
-                        modifier = Modifier.height(56.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                        ),
-                        shape = RoundedCornerShape(28.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CalendarToday,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = "Сегодня")
-                    }
-                }
-            }
-            
-            // Быстрый выбор дат (чипсы)
+            // Выбор даты
             item {
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -213,30 +117,39 @@ fun StatisticsScreen(
             // Карточки со статистикой
             item {
                 if (dateStats != null) {
-                    // Карточка с заказами
-                    StatCard(
-                        title = "Выполненные заказы",
-                        value = dateStats.completedOrders.toString(),
-                        backgroundColor = Color(0xFFECE5FF)
-                    )
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
-                    // Карточка с весом
-                    StatCard(
-                        title = "Общий вес (кг)",
-                        value = String.format("%.1f", dateStats.totalWeight),
-                        backgroundColor = Color(0xFFECE5FF)
-                    )
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
-                    // Карточка с пробегом
-                    StatCard(
-                        title = "Приблизительный пробег (км)",
-                        value = String.format("%.1f", dateStats.totalDistance),
-                        backgroundColor = Color(0xFFFFE5E5)
-                    )
+                    // Контейнер для всех карточек с отступом
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        // Карточка с заказами
+                        StatCard(
+                            title = "Выполненные заказы",
+                            value = dateStats.completedOrders.toString(),
+                            backgroundColor = Color(0xFFECE5FF),
+                            onClick = { viewModel.getCompletedOrdersForDate(selectedDate) }
+                        )
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        // Карточка с весом
+                        StatCard(
+                            title = "Общий вес (кг)",
+                            value = String.format("%.1f", dateStats.totalWeight),
+                            backgroundColor = Color(0xFFECE5FF)
+                        )
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        // Карточка с пробегом
+                        StatCard(
+                            title = "Приблизительный пробег (км)",
+                            value = String.format("%.1f", dateStats.totalDistance),
+                            backgroundColor = Color(0xFFFFE5E5)
+                        )
+                    }
                 } else {
                     Box(
                         modifier = Modifier
@@ -263,17 +176,72 @@ fun StatisticsScreen(
                     modifier = Modifier.padding(vertical = 8.dp)
                 )
                 
+                println("Статистика за день: ${dateStats?.completedOrders}, Заказов в списке: ${completedOrdersForDate.size}")
+                
                 if (dateStats != null && dateStats.completedOrders > 0) {
-                    // В будущем здесь может быть список заказов за день
-                    // Сейчас у нас нет доступа к списку выполненных заказов за конкретную дату
-                    Text(
-                        text = "Данные по отдельным заказам недоступны",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 24.dp),
-                        textAlign = TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    if (completedOrdersForDate.isNotEmpty()) {
+                        println("Отображаем ${completedOrdersForDate.size} заказов")
+                        Column(modifier = Modifier.padding(bottom = 16.dp)) {
+                            completedOrdersForDate.forEach { order ->
+                                println("Отображаем заказ №${order.orderNumber}")
+                                OrderItem(
+                                    order = order,
+                                    onOrderClick = { },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
+                        }
+                    } else if (isLoading) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(36.dp),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "Загрузка заказов...",
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else if (loadError != null) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clickable { viewModel.getCompletedOrdersForDate(selectedDate) },
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "Ошибка загрузки данных. Нажмите, чтобы повторить.",
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "Нет данных о заказах за выбранную дату",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 24.dp),
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 } else {
                     Text(
                         text = "Нет выполненных заказов\nза выбранную дату",
@@ -320,7 +288,7 @@ fun DateChip(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    Surface(
+    Card(
         modifier = Modifier
             .height(48.dp)
             .clip(RoundedCornerShape(24.dp))
@@ -330,17 +298,22 @@ fun DateChip(
                 color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                 shape = RoundedCornerShape(24.dp)
             ),
-        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 4.dp else 0.dp)
     ) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
+                .fillMaxHeight()
                 .padding(horizontal = 16.dp)
         ) {
             Text(
                 text = date.format(shortDateFormatter),
                 color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                textAlign = TextAlign.Center
             )
         }
     }
@@ -350,31 +323,50 @@ fun DateChip(
 fun StatCard(
     title: String,
     value: String,
-    backgroundColor: Color
+    backgroundColor: Color,
+    onClick: (() -> Unit)? = null
 ) {
-    Surface(
+    Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp)),
-        color = backgroundColor
+            .height(120.dp)  // Фиксированная высота для всех карточек
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+        colors = CardDefaults.cardColors(containerColor = backgroundColor),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
-        Column(
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
+                .fillMaxSize()
+                .padding(16.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = title,
-                fontSize = 16.sp,
-                color = Color.DarkGray
-            )
-            
-            Text(
-                text = value,
-                fontSize = 32.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.Black
-            )
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Surface(
+                    modifier = Modifier
+                        .wrapContentSize()
+                        .padding(horizontal = 8.dp),
+                    color = Color.Transparent
+                ) {
+                    Text(
+                        text = value,
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Center,
+                        fontSize = 28.sp
+                    )
+                }
+            }
         }
     }
 } 

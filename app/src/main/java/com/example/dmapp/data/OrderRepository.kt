@@ -381,6 +381,37 @@ class OrderRepository(private val orderDao: OrderDao) {
         return orderDao.getAllCompletedOrders()
     }
 
+    suspend fun getCompletedOrdersForDate(date: LocalDate): List<Order> {
+        val formattedDate = date.toString()
+        println("Getting completed orders for date: $formattedDate")
+        
+        // Получаем все выполненные заказы через новый метод
+        val allCompletedOrders = orderDao.getAllCompletedOrdersForStatistics()
+        println("Total completed orders in DB: ${allCompletedOrders.size}")
+        
+        if (allCompletedOrders.isEmpty()) {
+            println("В базе данных нет выполненных заказов")
+            return emptyList()
+        }
+        
+        // Выводим информацию о первом заказе для отладки
+        if (allCompletedOrders.isNotEmpty()) {
+            val firstOrder = allCompletedOrders[0]
+            println("Пример заказа: №${firstOrder.orderNumber}, дата: ${firstOrder.deliveryTimeStart}, статус: ${firstOrder.status}")
+        }
+        
+        // Фильтруем их вручную по дате
+        val ordersForDate = allCompletedOrders.filter { order ->
+            val orderDate = order.deliveryTimeStart.toLocalDate()
+            val result = orderDate == date
+            println("Заказ ${order.orderNumber}, дата ${orderDate}, совпадает с $date: $result")
+            result
+        }
+        
+        println("Filtered orders for date $date: ${ordersForDate.size}")
+        return ordersForDate
+    }
+
     suspend fun updateOrderNotes(orderId: Long, notes: String) {
         val order = orderDao.findOrderById(orderId) ?: return
         val updatedOrder = order.copy(notes = notes)
@@ -535,6 +566,11 @@ class OrderRepository(private val orderDao: OrderDao) {
         
         // Добавляем "город Москва" в начало адреса
         return "город Москва, $resultAddress".trim()
+    }
+
+    suspend fun updateOrderPhoto(orderId: Long, photoUri: String?) {
+        orderDao.updateOrderPhoto(orderId, photoUri)
+        println("Обновлено фото для заказа с ID $orderId: $photoUri")
     }
 }
 

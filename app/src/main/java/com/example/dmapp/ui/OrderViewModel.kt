@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.dmapp.data.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 
 class OrderViewModel(
     private val repository: OrderRepository,
@@ -27,6 +28,15 @@ class OrderViewModel(
 
     private val _deleteResult = MutableStateFlow<Int?>(null)
     val deleteResult: StateFlow<Int?> = _deleteResult.asStateFlow()
+
+    private val _completedOrdersForDate = MutableStateFlow<List<Order>>(emptyList())
+    val completedOrdersForDate: StateFlow<List<Order>> = _completedOrdersForDate.asStateFlow()
+
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
+    private val _loadError = MutableStateFlow<String?>(null)
+    val loadError: StateFlow<String?> = _loadError.asStateFlow()
 
     fun importOrders(text: String) {
         viewModelScope.launch {
@@ -72,7 +82,8 @@ class OrderViewModel(
     private fun updateStatisticsWithCompletedOrder(order: Order) {
         viewModelScope.launch {
             println("updateStatisticsWithCompletedOrder: Обновление статистики для заказа ${order.orderNumber}")
-            statisticsRepository.updateStatisticsFromCompletedOrders(listOf(order))
+            // Сохраняем заказ в таблицу статистики
+            statisticsRepository.saveOrderToStatistics(order)
             refreshStatistics()
         }
     }
@@ -171,6 +182,70 @@ class OrderViewModel(
             println("forceUpdateStatisticsForOrder: Принудительное обновление статистики для заказа ${order.orderNumber}")
             statisticsRepository.updateStatisticsFromCompletedOrders(listOf(order))
             refreshStatistics()
+        }
+    }
+
+    fun getCompletedOrdersForDate(date: LocalDate) {
+        viewModelScope.launch {
+            try {
+                _isLoading.value = true
+                _loadError.value = null
+                println("Запрашиваем заказы за дату: $date")
+                
+                // Получаем заказы из таблицы статистики
+                val orders = statisticsRepository.getDisplayOrdersForDate(date)
+                
+                println("Получено заказов из статистики: ${orders.size}")
+                _completedOrdersForDate.value = orders
+            } catch (e: Exception) {
+                println("Ошибка при загрузке заказов: ${e.message}")
+                e.printStackTrace()
+                _loadError.value = "Не удалось загрузить заказы: ${e.message}"
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun migrateCompletedOrdersToStatistics() {
+        viewModelScope.launch {
+            try {
+                println("Начинаем перенос всех выполненных заказов в таблицу статистики")
+                val allCompletedOrders = repository.getAllCompletedOrders()
+                println("Найдено ${allCompletedOrders.size} выполненных заказов для переноса в статистику")
+                
+                var successCount = 0
+                for (order in allCompletedOrders) {
+                    try {
+                        statisticsRepository.saveOrderToStatistics(order)
+                        successCount++
+                    } catch (e: Exception) {
+                        println("Ошибка при переносе заказа ${order.orderNumber} в статистику: ${e.message}")
+                    }
+                }
+                
+                println("Успешно перенесено $successCount из ${allCompletedOrders.size} заказов в статистику")
+                refreshStatistics()
+            } catch (e: Exception) {
+                println("Ошибка при переносе заказов в статистику: ${e.message}")
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun updateOrderPhoto(orderId: Long, photoUri: String?) {
+        viewModelScope.launch {
+            repository.updateOrderPhoto(orderId, photoUri)
+            
+            // Обновляем потоки заказов, чтобы UI увидел изменения
+            // Нам нужно найти заказ в обоих списках и обновить фото
+            _completedOrdersForDate.value = _completedOrdersForDate.value.map { order ->
+                if (order.id == orderId) {
+                    order.copy(photoUri = photoUri)
+                } else {
+                    order
+                }
+            }
         }
     }
 

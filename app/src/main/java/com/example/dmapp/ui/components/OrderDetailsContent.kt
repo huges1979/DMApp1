@@ -1,7 +1,11 @@
 package com.example.dmapp.ui.components
 
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -9,17 +13,21 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Message
+import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.dmapp.data.Order
 import com.example.dmapp.data.OrderStatus
+import java.io.File
 import java.time.format.DateTimeFormatter
 
 /**
@@ -31,7 +39,9 @@ fun OrderDetailsContent(
     order: Order,
     modifier: Modifier = Modifier,
     onStatusChange: ((Order, OrderStatus) -> Unit)? = null,
-    onNotesChange: ((Order, String) -> Unit)? = null
+    onNotesChange: ((Order, String) -> Unit)? = null,
+    onTakePhoto: (() -> Unit)? = null,
+    onPhotoClick: ((Uri) -> Unit)? = null
 ) {
     // Локальное состояние для заметок
     var notesText by remember { mutableStateOf(order.notes ?: "") }
@@ -371,6 +381,102 @@ fun OrderDetailsContent(
             minLines = 3,
             maxLines = 5
         )
+        
+        // После заметок к заказу, но перед кнопкой смены статуса добавляем секцию фото
+        if (onTakePhoto != null) {
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            Text(
+                text = "Фотография",
+                style = MaterialTheme.typography.titleMedium,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // Если есть фото - показываем его
+            if (order.photoUri != null) {
+                val context = LocalContext.current
+                var bitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+                
+                // Загружаем изображение
+                LaunchedEffect(order.photoUri) {
+                    try {
+                        // Извлекаем файл из URI
+                        val uri = Uri.parse(order.photoUri)
+                        val inputStream = context.contentResolver.openInputStream(uri)
+                        bitmap = BitmapFactory.decodeStream(inputStream)
+                        inputStream?.close()
+                    } catch (e: Exception) {
+                        println("Ошибка загрузки изображения: ${e.message}")
+                    }
+                }
+                
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .clickable { 
+                            onPhotoClick?.invoke(Uri.parse(order.photoUri))
+                        }
+                ) {
+                    // Отображаем фото
+                    bitmap?.let { loadedBitmap ->
+                        Image(
+                            bitmap = loadedBitmap.asImageBitmap(),
+                            contentDescription = "Фото заказа",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .fillMaxHeight(),
+                            contentScale = ContentScale.Fit
+                        )
+                    } ?: Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Загрузка фото...")
+                    }
+                    
+                    // Кнопка замены фото
+                    Button(
+                        onClick = { onTakePhoto() },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    ) {
+                        Icon(
+                            Icons.Default.PhotoCamera,
+                            contentDescription = "Переснять фото",
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Переснять")
+                    }
+                }
+            } else {
+                // Если фото нет - показываем кнопку для добавления
+                OutlinedButton(
+                    onClick = { onTakePhoto() },
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(vertical = 12.dp)
+                ) {
+                    Icon(
+                        Icons.Default.PhotoCamera,
+                        contentDescription = "Добавить фото",
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Добавить фото")
+                }
+            }
+        }
         
         // Кнопка смены статуса перемещена в самый низ
         if (onStatusChange != null) {

@@ -10,6 +10,7 @@ import com.google.gson.stream.JsonReader
 import com.google.gson.stream.JsonWriter
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import androidx.room.Room
 
 /**
  * Репозиторий для работы со статистикой
@@ -23,6 +24,10 @@ class StatisticsRepository(private val context: Context) {
     private val gson = GsonBuilder()
         .registerTypeAdapter(LocalDate::class.java, LocalDateAdapter())
         .create()
+    
+    // Получаем доступ к базе данных
+    private val database = AppDatabase.getDatabase(context)
+    private val statisticsOrderDao = database.statisticsOrderDao()
     
     companion object {
         private const val STATS_PREFS_NAME = "statistics_prefs"
@@ -201,5 +206,95 @@ class StatisticsRepository(private val context: Context) {
             val updatedStats = Statistics(currentStats.dailyStats + newStats)
             saveStatistics(updatedStats)
         }
+    }
+    
+    /**
+     * Сохранить выполненный заказ в таблицу статистики
+     */
+    suspend fun saveOrderToStatistics(order: Order) {
+        try {
+            // Проверяем, не существует ли заказ уже в статистике
+            val exists = statisticsOrderDao.orderExistsInStatistics(order.externalOrderNumber)
+            if (exists) {
+                println("Заказ ${order.externalOrderNumber} уже существует в статистике, пропускаем")
+                return
+            }
+            
+            // Конвертируем Order в StatisticsOrder
+            val statisticsOrder = StatisticsOrder(
+                orderNumber = order.orderNumber,
+                externalOrderNumber = order.externalOrderNumber,
+                deliveryAddress = order.deliveryAddress,
+                clientName = order.clientName,
+                clientPhone = order.clientPhone,
+                deliveryTimeStart = order.deliveryTimeStart,
+                deliveryTimeEnd = order.deliveryTimeEnd,
+                weight = order.weight,
+                orderAmount = order.orderAmount,
+                completionDate = LocalDate.now().atStartOfDay() // Текущая дата как дата выполнения
+            )
+            
+            // Сохраняем в базу данных
+            statisticsOrderDao.insert(statisticsOrder)
+            println("Заказ ${order.externalOrderNumber} успешно сохранен в статистику")
+            
+            // Также обновляем статистику в SharedPreferences для обратной совместимости
+            updateStatisticsFromCompletedOrders(listOf(order))
+        } catch (e: Exception) {
+            println("Ошибка при сохранении заказа в статистику: ${e.message}")
+            e.printStackTrace()
+        }
+    }
+    
+    /**
+     * Получить заказы из статистики по дате
+     */
+    suspend fun getOrdersFromStatisticsForDate(date: LocalDate): List<StatisticsOrder> {
+        return try {
+            val dateString = date.toString()
+            println("Запрашиваем заказы из статистики за дату: $dateString")
+            val orders = statisticsOrderDao.getOrdersCompletedOnDate(dateString)
+            println("Получено ${orders.size} заказов из статистики за дату $dateString")
+            orders
+        } catch (e: Exception) {
+            println("Ошибка при получении заказов из статистики: ${e.message}")
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+    
+    /**
+     * Конвертировать StatisticsOrder в Order для отображения
+     */
+    fun convertToOrder(statisticsOrder: StatisticsOrder): Order {
+        return Order(
+            id = statisticsOrder.id,
+            orderNumber = statisticsOrder.orderNumber,
+            externalOrderNumber = statisticsOrder.externalOrderNumber,
+            pickupLocation = "",  // Эти поля не важны для отображения в статистике
+            sector = "",
+            place = "",
+            clientPhone = statisticsOrder.clientPhone,
+            clientName = statisticsOrder.clientName,
+            deliveryAddress = statisticsOrder.deliveryAddress,
+            clientComment = null,
+            deliveryTimeStart = statisticsOrder.deliveryTimeStart,
+            deliveryTimeEnd = statisticsOrder.deliveryTimeEnd,
+            weight = statisticsOrder.weight,
+            volume = 0.0,  // Не важно для статистики
+            isPrepaid = false,
+            courierName = "",
+            courierPhone = "",
+            orderAmount = statisticsOrder.orderAmount,
+            status = OrderStatus.COMPLETED
+        )
+    }
+    
+    /**
+     * Получить и преобразовать заказы для отображения в UI
+     */
+    suspend fun getDisplayOrdersForDate(date: LocalDate): List<Order> {
+        val statisticsOrders = getOrdersFromStatisticsForDate(date)
+        return statisticsOrders.map { convertToOrder(it) }
     }
 } 

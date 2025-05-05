@@ -1,6 +1,7 @@
 package com.example.dmapp
 
 import android.app.Application
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -37,6 +38,8 @@ import com.example.dmapp.ui.screens.MainScreen
 import com.example.dmapp.ui.screens.MapScreen
 import com.example.dmapp.ui.screens.OrderDetailScreen
 import com.example.dmapp.ui.screens.StatisticsScreen
+import com.example.dmapp.ui.screens.PhotoCaptureScreen
+import com.example.dmapp.ui.screens.FullScreenPhotoViewer
 import com.yandex.mapkit.MapKitFactory
 import com.yandex.mapkit.search.SearchFactory
 import kotlinx.coroutines.flow.StateFlow
@@ -69,6 +72,9 @@ class MainActivity : ComponentActivity() {
             this,
             OrderViewModel.Factory(repository, applicationContext)
         )[OrderViewModel::class.java]
+
+        // Migrate existing orders to statistics
+        viewModel.migrateCompletedOrdersToStatistics()
 
         setContent {
             MaterialTheme {
@@ -138,6 +144,16 @@ class MainActivity : ComponentActivity() {
                                         // Обновляем сохраненный заказ в навигационном стеке
                                         navController.currentBackStackEntry?.savedStateHandle?.set("order", editedOrder)
                                     }
+                                },
+                                onTakePhoto = { orderToPhotograph ->
+                                    // Сохраняем заказ в навигационном стеке и переходим на экран фото
+                                    navController.currentBackStackEntry?.savedStateHandle?.set("order_for_photo", orderToPhotograph)
+                                    navController.navigate("photo_capture")
+                                },
+                                onViewPhoto = { photoUri ->
+                                    // Сохраняем URI фото и переходим на экран просмотра
+                                    navController.currentBackStackEntry?.savedStateHandle?.set("photo_uri", photoUri.toString())
+                                    navController.navigate("photo_viewer")
                                 }
                             )
                         }
@@ -155,8 +171,38 @@ class MainActivity : ComponentActivity() {
                             },
                             onClearStatistics = {
                                 viewModel.clearStatistics()
-                            }
+                            },
+                            viewModel = viewModel
                         )
+                    }
+                    
+                    composable("photo_capture") {
+                        val order = navController.previousBackStackEntry?.savedStateHandle?.get<Order>("order_for_photo")
+                        order?.let {
+                            PhotoCaptureScreen(
+                                order = it,
+                                viewModel = viewModel,
+                                onNavigateBack = {
+                                    navController.popBackStack()
+                                },
+                                onPhotoSaved = {
+                                    // После сохранения фото возвращаемся назад
+                                    navController.popBackStack()
+                                }
+                            )
+                        }
+                    }
+                    
+                    composable("photo_viewer") {
+                        val photoUriString = navController.previousBackStackEntry?.savedStateHandle?.get<String>("photo_uri")
+                        photoUriString?.let { uriString ->
+                            FullScreenPhotoViewer(
+                                photoUri = Uri.parse(uriString),
+                                onClose = {
+                                    navController.popBackStack()
+                                }
+                            )
+                        }
                     }
                 }
             }

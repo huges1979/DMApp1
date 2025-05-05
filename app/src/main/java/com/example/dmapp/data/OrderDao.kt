@@ -43,4 +43,10 @@ interface OrderDao {
     
     @Query("UPDATE orders SET latitude = :latitude, longitude = :longitude WHERE id = :orderId")
     suspend fun updateOrderCoordinates(orderId: Long, latitude: Double, longitude: Double)
+
+    @Query("SELECT * FROM orders WHERE status = 'COMPLETED'")
+    suspend fun getAllCompletedOrdersForStatistics(): List<Order>
+
+    @Query("UPDATE orders SET photoUri = :photoUri WHERE id = :orderId")
+    suspend fun updateOrderPhoto(orderId: Long, photoUri: String?)
 } 
