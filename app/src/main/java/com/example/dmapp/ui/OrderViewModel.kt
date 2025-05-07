@@ -1,6 +1,7 @@
 package com.example.dmapp.ui
 
 import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -8,6 +9,7 @@ import com.example.dmapp.data.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.LocalDateTime
 
 class OrderViewModel(
     private val repository: OrderRepository,
@@ -38,52 +40,105 @@ class OrderViewModel(
     private val _loadError = MutableStateFlow<String?>(null)
     val loadError: StateFlow<String?> = _loadError.asStateFlow()
 
-    fun importOrders(text: String) {
-        viewModelScope.launch {
-            val result = repository.importOrders(text)
-            _importResult.value = result
-        }
-    }
+    private val _navigationEvent = MutableStateFlow<NavigationEvent?>(null)
+    val navigationEvent: StateFlow<NavigationEvent?> = _navigationEvent.asStateFlow()
 
-    fun updateOrderStatus(order: Order, newStatus: OrderStatus) {
+    fun importOrders(text: String) {
+        println("\n=== OrderViewModel.importOrders: Начало импорта заказов ===")
         viewModelScope.launch {
-            println("Обновление статуса заказа ${order.orderNumber} с ${order.status} на $newStatus")
-            
-            // Создаем копию заказа с новым статусом
-            val updatedOrder = order.copy(status = newStatus)
-            
-            // Сохраняем обновленный заказ в базе данных
-            repository.updateOrderStatus(updatedOrder, newStatus)
-            
-            // Если заказ переведен в статус COMPLETED, обновляем статистику
-            if (newStatus == OrderStatus.COMPLETED) {
-                println("Заказ ${order.orderNumber} помечен как выполненный, обновляем статистику (один раз)")
-                updateStatisticsWithCompletedOrder(updatedOrder)
+            try {
+                println("Вызываем repository.importOrders")
+                val result = repository.importOrders(text)
+                println("Импорт завершен: ${result.newOrders} новых заказов, ${result.duplicates} дубликатов, ${result.errors} ошибок")
+                
+                // Проверяем, что заказы действительно добавились
+                val activeOrders = repository.activeOrders.first()
+                println("Текущее количество активных заказов: ${activeOrders.size}")
+                if (activeOrders.isNotEmpty()) {
+                    println("Первый активный заказ: №${activeOrders[0].orderNumber}, статус: ${activeOrders[0].status}")
+                }
+                
+                _importResult.value = result
+                println("=== OrderViewModel.importOrders: Завершено ===\n")
+            } catch (e: Exception) {
+                println("Ошибка при импорте заказов: ${e.message}")
+                e.printStackTrace()
             }
         }
     }
 
+    fun updateOrderStatus(order: Order, newStatus: OrderStatus) {
+        println("\n=== updateOrderStatus: Начало обновления статуса заказа ===")
+        println("Заказ №${order.orderNumber}, текущий статус: ${order.status}, новый статус: $newStatus")
+        
+        viewModelScope.launch {
+            try {
+                // Обновляем статус в базе данных
+                repository.updateOrderStatus(order, newStatus)
+                println("Статус заказа обновлен в базе данных")
+                
+                // Получаем обновленный заказ
+                val updatedOrder = repository.getOrderById(order.id)
+                println("Получен обновленный заказ: ${updatedOrder?.orderNumber}, статус: ${updatedOrder?.status}")
+                
+                // Обновляем UI
+                _completedOrdersForDate.value = _completedOrdersForDate.value.map { 
+                    if (it.id == order.id) updatedOrder ?: it else it 
+                }
+                println("UI обновлен")
+            } catch (e: Exception) {
+                println("Ошибка при обновлении статуса заказа: ${e.message}")
+                e.printStackTrace()
+            }
+        }
+        
+        println("=== updateOrderStatus: Завершено ===\n")
+    }
+
     fun clearCompletedOrders() {
         viewModelScope.launch {
-            // Получаем список выполненных заказов (только для информации)
-            val ordersToProcess = repository.getAllCompletedOrders()
-            println("Очистка выполненных заказов. Найдено ${ordersToProcess.size} заказов")
+            println("Очистка выполненных заказов")
+            var deletedCount = 0
             
-            // Удаляем заказы из базы данных
-            val count = repository.deleteCompletedOrders()
-            _deleteResult.value = count
-            println("Удалено $count выполненных заказов")
+            try {
+                // Получаем все выполненные заказы перед удалением
+                val completedOrders = repository.getAllCompletedOrders()
+                println("Получено ${completedOrders.size} выполненных заказов для сохранения в статистику")
+                
+                if (completedOrders.isEmpty()) {
+                    println("Нет выполненных заказов для сохранения в статистику")
+                    return@launch
+                }
+                
+                // Выводим информацию о каждом заказе
+                completedOrders.forEach { order ->
+                    println("Заказ для сохранения: номер=${order.orderNumber}, внешний номер=${order.externalOrderNumber}, статус=${order.status}")
+                }
+                
+                // Удаляем выполненные заказы
+                deletedCount = repository.deleteCompletedOrders()
+                println("Удалено $deletedCount выполненных заказов")
+                
+                // Обновляем статистику с удаленными заказами
+                println("Начинаем сохранение заказов в статистику")
+                statisticsRepository.updateStatisticsFromCompletedOrders(completedOrders)
+                println("Все заказы обработаны, обновляем статистику")
+                refreshStatistics()
+            } catch (e: Exception) {
+                println("Ошибка при очистке выполненных заказов: ${e.message}")
+                e.printStackTrace()
+            }
             
-            // Удаляем обновление статистики, так как эти заказы уже учтены в статистике при их закрытии
-            // Если удалить эту часть, задвоение статистики исчезнет
+            // Обновляем UI
+            _deleteResult.value = deletedCount
+            println("Очистка выполненных заказов завершена")
         }
     }
     
     private fun updateStatisticsWithCompletedOrder(order: Order) {
         viewModelScope.launch {
             println("updateStatisticsWithCompletedOrder: Обновление статистики для заказа ${order.orderNumber}")
-            // Сохраняем заказ в таблицу статистики
-            statisticsRepository.saveOrderToStatistics(order)
+            statisticsRepository.updateStatisticsFromCompletedOrders(listOf(order))
             refreshStatistics()
         }
     }
@@ -160,16 +215,30 @@ class OrderViewModel(
         viewModelScope.launch {
             println("Очистка всей статистики")
             
-            // Создаем пустую статистику
-            val emptyStats = Statistics(emptyList())
-            
-            // Сохраняем пустую статистику
-            statisticsRepository.saveStatistics(emptyStats)
+            // Очищаем статистику
+            statisticsRepository.clearStatistics()
             
             // Обновляем UI
             refreshStatistics()
             
             println("Статистика успешно очищена")
+        }
+    }
+
+    /**
+     * Очистить статистику за конкретную дату
+     */
+    fun clearStatisticsForDate(date: LocalDate) {
+        viewModelScope.launch {
+            println("Очистка статистики за ${date}")
+            
+            // Очищаем статистику за дату
+            statisticsRepository.clearStatisticsForDate(date)
+            
+            // Обновляем UI
+            refreshStatistics()
+            
+            println("Статистика за ${date} успешно очищена")
         }
     }
 
@@ -185,22 +254,35 @@ class OrderViewModel(
         }
     }
 
+    /**
+     * Получить выполненные заказы за конкретную дату
+     */
     fun getCompletedOrdersForDate(date: LocalDate) {
         viewModelScope.launch {
             try {
+                println("getCompletedOrdersForDate: Загрузка заказов за дату ${date}")
                 _isLoading.value = true
                 _loadError.value = null
-                println("Запрашиваем заказы за дату: $date")
                 
-                // Получаем заказы из таблицы статистики
+                // Получаем заказы из статистики
                 val orders = statisticsRepository.getDisplayOrdersForDate(date)
+                println("getCompletedOrdersForDate: Получено ${orders.size} заказов")
                 
-                println("Получено заказов из статистики: ${orders.size}")
+                // Обновляем UI
                 _completedOrdersForDate.value = orders
+                
+                // Проверяем соответствие с общей статистикой
+                val stats = statistics.value.getStatsForDay(date)
+                if (stats != null && stats.completedOrders != orders.size) {
+                    println("getCompletedOrdersForDate: Обнаружено несоответствие между статистикой (${stats.completedOrders}) и количеством заказов (${orders.size})")
+                    // Обновляем статистику
+                    statisticsRepository.updateStatisticsFromCompletedOrders(orders)
+                    refreshStatistics()
+                }
             } catch (e: Exception) {
-                println("Ошибка при загрузке заказов: ${e.message}")
+                println("getCompletedOrdersForDate: Ошибка при загрузке заказов: ${e.message}")
                 e.printStackTrace()
-                _loadError.value = "Не удалось загрузить заказы: ${e.message}"
+                _loadError.value = "Ошибка при загрузке заказов: ${e.message}"
             } finally {
                 _isLoading.value = false
             }
@@ -235,18 +317,122 @@ class OrderViewModel(
 
     fun updateOrderPhoto(orderId: Long, photoUri: String?) {
         viewModelScope.launch {
-            repository.updateOrderPhoto(orderId, photoUri)
+            println("\n=== updateOrderPhoto: Начало обновления фото заказа ===")
+            println("DEBUG: Заказ ID: $orderId, новый URI фото: $photoUri")
             
-            // Обновляем потоки заказов, чтобы UI увидел изменения
-            // Нам нужно найти заказ в обоих списках и обновить фото
-            _completedOrdersForDate.value = _completedOrdersForDate.value.map { order ->
-                if (order.id == orderId) {
-                    order.copy(photoUri = photoUri)
-                } else {
-                    order
+            try {
+                // Получаем текущий заказ
+                val currentOrder = repository.getOrderById(orderId)
+                if (currentOrder == null) {
+                    println("ERROR: Заказ с ID $orderId не найден")
+                    return@launch
                 }
+                println("DEBUG: Текущий заказ: №${currentOrder.orderNumber}, внешний №${currentOrder.externalOrderNumber}")
+                println("DEBUG: Текущее фото: URI=${currentOrder.photoUri}, DateTime=${currentOrder.photoDateTime}")
+                
+                // Обновляем фото в базе данных
+                println("DEBUG: Обновляем фото в базе данных...")
+                repository.updateOrderPhoto(orderId, photoUri)
+                println("DEBUG: Фото успешно обновлено в базе данных")
+                
+                // Получаем обновленный заказ для проверки
+                val updatedOrder = repository.getOrderById(orderId)
+                if (updatedOrder == null) {
+                    println("ERROR: Не удалось получить обновленный заказ")
+                    return@launch
+                }
+                println("DEBUG: Заказ после обновления: №${updatedOrder.orderNumber}")
+                println("DEBUG: Фото после обновления: URI=${updatedOrder.photoUri}, DateTime=${updatedOrder.photoDateTime}")
+                
+                // Обновляем потоки заказов, чтобы UI увидел изменения
+                println("DEBUG: Обновляем UI...")
+                val currentOrders = _completedOrdersForDate.value
+                println("DEBUG: Текущее количество заказов в UI: ${currentOrders.size}")
+                
+                _completedOrdersForDate.value = currentOrders.map { order ->
+                    if (order.id == orderId) {
+                        println("DEBUG: Обновляем фото в UI для заказа №${order.orderNumber}")
+                        order.copy(photoUri = photoUri)
+                    } else {
+                        order
+                    }
+                }
+                
+                println("DEBUG: UI успешно обновлен с новым фото")
+            } catch (e: Exception) {
+                println("ERROR: Ошибка при обновлении фото: ${e.message}")
+                e.printStackTrace()
             }
+            
+            println("=== updateOrderPhoto: Завершено ===\n")
         }
+    }
+
+    fun updateOrderPhotoDateTime(orderId: Long, photoDateTime: LocalDateTime?) {
+        viewModelScope.launch {
+            println("\n=== updateOrderPhotoDateTime: Начало обновления даты фото ===")
+            println("DEBUG: Заказ ID: $orderId, новая дата фото: $photoDateTime")
+            
+            try {
+                // Получаем текущий заказ
+                val currentOrder = repository.getOrderById(orderId)
+                if (currentOrder == null) {
+                    println("ERROR: Заказ с ID $orderId не найден")
+                    return@launch
+                }
+                println("DEBUG: Текущий заказ: №${currentOrder.orderNumber}, внешний №${currentOrder.externalOrderNumber}")
+                println("DEBUG: Текущее фото: URI=${currentOrder.photoUri}, DateTime=${currentOrder.photoDateTime}")
+                
+                // Обновляем дату фото в базе данных
+                println("DEBUG: Обновляем дату фото в базе данных...")
+                repository.updateOrderPhotoDateTime(orderId, photoDateTime)
+                println("DEBUG: Дата фото успешно обновлена в базе данных")
+                
+                // Получаем обновленный заказ для проверки
+                val updatedOrder = repository.getOrderById(orderId)
+                if (updatedOrder == null) {
+                    println("ERROR: Не удалось получить обновленный заказ")
+                    return@launch
+                }
+                println("DEBUG: Заказ после обновления: №${updatedOrder.orderNumber}")
+                println("DEBUG: Фото после обновления: URI=${updatedOrder.photoUri}, DateTime=${updatedOrder.photoDateTime}")
+                
+                // Обновляем потоки заказов, чтобы UI увидел изменения
+                println("DEBUG: Обновляем UI...")
+                val currentOrders = _completedOrdersForDate.value
+                println("DEBUG: Текущее количество заказов в UI: ${currentOrders.size}")
+                
+                _completedOrdersForDate.value = currentOrders.map { order ->
+                    if (order.id == orderId) {
+                        println("DEBUG: Обновляем дату фото в UI для заказа №${order.orderNumber}")
+                        order.copy(photoDateTime = photoDateTime)
+                    } else {
+                        order
+                    }
+                }
+                
+                println("DEBUG: UI успешно обновлен с новой датой фото")
+            } catch (e: Exception) {
+                println("ERROR: Ошибка при обновлении даты фото: ${e.message}")
+                e.printStackTrace()
+            }
+            
+            println("=== updateOrderPhotoDateTime: Завершено ===\n")
+        }
+    }
+
+    // Методы навигации для работы с фотографиями
+    fun navigateToPhotoCapture(order: Order) {
+        _navigationEvent.value = NavigationEvent.PhotoCapture(order)
+    }
+
+    fun navigateToPhotoViewer(photoUri: Uri) {
+        _navigationEvent.value = NavigationEvent.PhotoViewer(photoUri)
+    }
+
+    sealed class NavigationEvent {
+        data class PhotoCapture(val order: Order) : NavigationEvent()
+        data class PhotoViewer(val photoUri: Uri) : NavigationEvent()
     }
 
     class Factory(

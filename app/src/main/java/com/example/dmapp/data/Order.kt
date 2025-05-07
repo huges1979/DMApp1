@@ -34,7 +34,8 @@ data class Order(
     val isCompleted: Boolean = false,
     val latitude: Double? = null,
     val longitude: Double? = null,
-    var photoUri: String? = null // Путь к фото заказа
+    var photoUri: String? = null, // Путь к фото заказа
+    var photoDateTime: LocalDateTime? = null // Дата и время создания фото
 ) : Parcelable
 
 enum class OrderStatus {

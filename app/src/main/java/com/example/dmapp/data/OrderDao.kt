@@ -2,6 +2,7 @@ package com.example.dmapp.data
 
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
+import java.time.LocalDateTime
 
 @Dao
 interface OrderDao {
@@ -14,6 +15,17 @@ interface OrderDao {
     @Query("SELECT * FROM orders WHERE status = 'COMPLETED'")
     suspend fun getAllCompletedOrders(): List<Order>
 
+    @Query("SELECT * FROM orders WHERE status = 'COMPLETED'")
+    suspend fun getAllCompletedOrdersForStatistics(): List<Order> {
+        println("OrderDao.getAllCompletedOrdersForStatistics: Запрос выполненных заказов")
+        val orders = getAllCompletedOrders()
+        println("OrderDao.getAllCompletedOrdersForStatistics: Получено ${orders.size} выполненных заказов")
+        if (orders.isNotEmpty()) {
+            println("Первый заказ: номер=${orders[0].orderNumber}, статус=${orders[0].status}, isCompleted=${orders[0].isCompleted}")
+        }
+        return orders
+    }
+
     @Query("SELECT COUNT(*) FROM orders WHERE status != 'COMPLETED'")
     fun getActiveOrdersCount(): Flow<Int>
 
@@ -21,7 +33,19 @@ interface OrderDao {
     fun getCompletedOrdersCount(): Flow<Int>
 
     @Query("SELECT * FROM orders WHERE externalOrderNumber = :number LIMIT 1")
-    suspend fun findDuplicateOrder(number: String): Order?
+    suspend fun findDuplicateOrder(number: String): Order? {
+        println("OrderDao.findDuplicateOrder: Поиск заказа с номером: $number")
+        val order = findDuplicateOrderInternal(number)
+        if (order != null) {
+            println("OrderDao.findDuplicateOrder: Найден существующий заказ: №${order.orderNumber}, внешний номер: ${order.externalOrderNumber}")
+        } else {
+            println("OrderDao.findDuplicateOrder: Заказ с номером $number не найден")
+        }
+        return order
+    }
+
+    @Query("SELECT * FROM orders WHERE externalOrderNumber = :number LIMIT 1")
+    suspend fun findDuplicateOrderInternal(number: String): Order?
 
     @Insert
     suspend fun insert(order: Order): Long
@@ -44,9 +68,33 @@ interface OrderDao {
     @Query("UPDATE orders SET latitude = :latitude, longitude = :longitude WHERE id = :orderId")
     suspend fun updateOrderCoordinates(orderId: Long, latitude: Double, longitude: Double)
 
-    @Query("SELECT * FROM orders WHERE status = 'COMPLETED'")
-    suspend fun getAllCompletedOrdersForStatistics(): List<Order>
+    @Query("UPDATE orders SET photoUri = :photoUri WHERE id = :orderId")
+    suspend fun updateOrderPhoto(orderId: Long, photoUri: String?) {
+        println("OrderDao.updateOrderPhoto: Updating photo for order $orderId with URI: $photoUri")
+        try {
+            updateOrderPhotoInternal(orderId, photoUri)
+            println("OrderDao.updateOrderPhoto: Successfully updated photo for order $orderId")
+        } catch (e: Exception) {
+            println("OrderDao.updateOrderPhoto: Error updating photo for order $orderId: ${e.message}")
+            throw e
+        }
+    }
 
     @Query("UPDATE orders SET photoUri = :photoUri WHERE id = :orderId")
-    suspend fun updateOrderPhoto(orderId: Long, photoUri: String?)
+    suspend fun updateOrderPhotoInternal(orderId: Long, photoUri: String?)
+
+    @Query("UPDATE orders SET photoDateTime = :photoDateTime WHERE id = :orderId")
+    suspend fun updateOrderPhotoDateTime(orderId: Long, photoDateTime: LocalDateTime?) {
+        println("OrderDao.updateOrderPhotoDateTime: Updating photo datetime for order $orderId with value: $photoDateTime")
+        try {
+            updateOrderPhotoDateTimeInternal(orderId, photoDateTime)
+            println("OrderDao.updateOrderPhotoDateTime: Successfully updated photo datetime for order $orderId")
+        } catch (e: Exception) {
+            println("OrderDao.updateOrderPhotoDateTime: Error updating photo datetime for order $orderId: ${e.message}")
+            throw e
+        }
+    }
+
+    @Query("UPDATE orders SET photoDateTime = :photoDateTime WHERE id = :orderId")
+    suspend fun updateOrderPhotoDateTimeInternal(orderId: Long, photoDateTime: LocalDateTime?)
 } 

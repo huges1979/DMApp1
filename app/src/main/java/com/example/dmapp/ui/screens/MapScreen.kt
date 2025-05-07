@@ -1524,6 +1524,16 @@ fun MapScreen(
                                     
                                     // Вызываем обработчик обновления заметок, если он передан
                                     onStatusUpdate?.invoke(order.copy(notes = newNotes), order.status)
+                                },
+                                onTakePhoto = {
+                                    // Закрываем текущую карточку
+                                    selectedOrder = null
+                                    // Открываем экран съемки фото
+                                    viewModel.navigateToPhotoCapture(currentOrder)
+                                },
+                                onPhotoClick = { uri ->
+                                    // Открываем фото в полноэкранном режиме
+                                    viewModel.navigateToPhotoViewer(uri)
                                 }
                             )
                         }

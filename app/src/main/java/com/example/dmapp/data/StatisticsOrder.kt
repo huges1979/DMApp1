@@ -20,5 +20,7 @@ data class StatisticsOrder(
     val deliveryTimeEnd: LocalDateTime,  // Конец интервала доставки
     val weight: Double,                  // Вес заказа
     val orderAmount: Double,             // Сумма заказа
-    val completionDate: LocalDateTime    // Дата выполнения заказа
+    val completionDate: LocalDateTime,   // Дата выполнения заказа
+    var photoUri: String? = null,        // Путь к фото заказа
+    var photoDateTime: LocalDateTime? = null // Дата и время создания фото
 ) : Parcelable 

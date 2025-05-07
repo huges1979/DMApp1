@@ -31,6 +31,7 @@ import com.example.dmapp.data.Order
 import com.example.dmapp.data.OrderRepository
 import com.example.dmapp.data.OrderStatus
 import com.example.dmapp.data.ImportResult
+import com.example.dmapp.data.StatisticsRepository
 import com.example.dmapp.ui.OrderViewModel
 import com.example.dmapp.ui.components.ImportDialog
 import com.example.dmapp.ui.components.OrdersList
@@ -59,18 +60,24 @@ class App : Application() {
 
 class MainActivity : ComponentActivity() {
     private lateinit var viewModel: OrderViewModel
+    private lateinit var orderRepository: OrderRepository
+    private lateinit var statisticsRepository: StatisticsRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         // Initialize database and repository
         val database = AppDatabase.getDatabase(applicationContext)
-        val repository = OrderRepository(database.orderDao())
+        orderRepository = OrderRepository(
+            orderDao = database.orderDao(),
+            context = this
+        )
+        statisticsRepository = StatisticsRepository(this)
         
         // Initialize ViewModel
         viewModel = ViewModelProvider(
             this,
-            OrderViewModel.Factory(repository, applicationContext)
+            OrderViewModel.Factory(orderRepository, applicationContext)
         )[OrderViewModel::class.java]
 
         // Migrate existing orders to statistics
@@ -172,7 +179,12 @@ class MainActivity : ComponentActivity() {
                             onClearStatistics = {
                                 viewModel.clearStatistics()
                             },
-                            viewModel = viewModel
+                            onOrderClick = { order ->
+                                navController.currentBackStackEntry?.savedStateHandle?.set("order", order)
+                                navController.navigate("order_detail")
+                            },
+                            viewModel = viewModel,
+                            navController = navController
                         )
                     }
                     
@@ -202,6 +214,38 @@ class MainActivity : ComponentActivity() {
                                     navController.popBackStack()
                                 }
                             )
+                        }
+                    }
+
+                    composable("map") {
+                        val orders by viewModel.activeOrders.collectAsState(initial = emptyList())
+                        val completedOrders by viewModel.completedOrders.collectAsState(initial = emptyList())
+                        MapScreen(
+                            orders = orders + completedOrders,
+                            onBackClick = {
+                                navController.popBackStack()
+                            },
+                            onStatusUpdate = { order, newStatus ->
+                                viewModel.updateOrderStatus(order, newStatus)
+                            },
+                            viewModel = viewModel
+                        )
+                    }
+                }
+
+                // Обработка событий навигации
+                LaunchedEffect(Unit) {
+                    viewModel.navigationEvent.collect { event ->
+                        when (event) {
+                            is OrderViewModel.NavigationEvent.PhotoCapture -> {
+                                navController.currentBackStackEntry?.savedStateHandle?.set("order_for_photo", event.order)
+                                navController.navigate("photo_capture")
+                            }
+                            is OrderViewModel.NavigationEvent.PhotoViewer -> {
+                                navController.currentBackStackEntry?.savedStateHandle?.set("photo_uri", event.photoUri.toString())
+                                navController.navigate("photo_viewer")
+                            }
+                            null -> {}
                         }
                     }
                 }

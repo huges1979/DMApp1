@@ -29,6 +29,8 @@ import androidx.core.content.FileProvider
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import com.example.dmapp.data.Order
 import com.example.dmapp.ui.OrderViewModel
 
@@ -43,17 +45,38 @@ fun PhotoCaptureScreen(
     val context = LocalContext.current
     var photoUri by remember { mutableStateOf<Uri?>(order.photoUri?.let { Uri.parse(it) }) }
     var permissionGranted by remember { mutableStateOf(false) }
+    var capturedBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     
-    // Запуск камеры - объявляем перед permissionLauncher, чтобы избежать циклической зависимости
+    // Запуск камеры
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
-        // Если фото сделано успешно, сохраняем URI в состоянии
         if (success) {
             println("Photo captured successfully: $photoUri")
+            // Получаем текущую дату и время
+            val currentDateTime = LocalDateTime.now()
+            
+            // Добавляем водяной знак на фото
+            try {
+                val inputStream = context.contentResolver.openInputStream(photoUri!!)
+                val originalBitmap = BitmapFactory.decodeStream(inputStream)
+                inputStream?.close()
+                
+                val watermarkedBitmap = addDateTimeWatermark(originalBitmap, currentDateTime)
+                capturedBitmap = watermarkedBitmap // Обновляем состояние bitmap
+                
+                // Сохраняем фото с водяным знаком
+                context.contentResolver.openOutputStream(photoUri!!)?.use { outputStream ->
+                    watermarkedBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, outputStream)
+                }
+                
+                // Сохраняем дату и время в базе данных
+                viewModel.updateOrderPhotoDateTime(order.id, currentDateTime)
+            } catch (e: Exception) {
+                println("Error adding watermark: ${e.message}")
+            }
         } else {
             println("Failed to capture photo")
-            // Если фото не сделано, возвращаемся назад
             if (order.photoUri == null) {
                 onNavigateBack()
             }
@@ -120,34 +143,43 @@ fun PhotoCaptureScreen(
                             .fillMaxWidth()
                             .background(Color.Black)
                     ) {
-                        var bitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
-                        
-                        // Загружаем изображение
-                        LaunchedEffect(photoUri) {
-                            try {
-                                // Извлекаем файл из URI
-                                val inputStream = context.contentResolver.openInputStream(photoUri!!)
-                                bitmap = BitmapFactory.decodeStream(inputStream)
-                                inputStream?.close()
-                            } catch (e: Exception) {
-                                println("Ошибка загрузки изображения: ${e.message}")
-                            }
-                        }
-                        
-                        bitmap?.let { loadedBitmap ->
+                        if (capturedBitmap != null) {
+                            // Показываем фото с водяным знаком
                             Image(
-                                bitmap = loadedBitmap.asImageBitmap(),
+                                bitmap = capturedBitmap!!.asImageBitmap(),
                                 contentDescription = "Фото заказа",
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Fit
                             )
-                        } ?: Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(
-                                color = Color.White
-                            )
+                        } else {
+                            // Загружаем существующее фото
+                            var bitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+                            
+                            LaunchedEffect(photoUri) {
+                                try {
+                                    val inputStream = context.contentResolver.openInputStream(photoUri!!)
+                                    bitmap = BitmapFactory.decodeStream(inputStream)
+                                    inputStream?.close()
+                                } catch (e: Exception) {
+                                    println("Ошибка загрузки изображения: ${e.message}")
+                                }
+                            }
+                            
+                            bitmap?.let { loadedBitmap ->
+                                Image(
+                                    bitmap = loadedBitmap.asImageBitmap(),
+                                    contentDescription = "Фото заказа",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Fit
+                                )
+                            } ?: Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    color = Color.White
+                                )
+                            }
                         }
                     }
                     
@@ -372,4 +404,33 @@ private fun createImageFile(context: Context): Uri {
         e.printStackTrace()
         throw e
     }
+}
+
+// Функция для добавления водяного знака с датой и временем на фото
+private fun addDateTimeWatermark(bitmap: android.graphics.Bitmap, dateTime: LocalDateTime): android.graphics.Bitmap {
+    val result = bitmap.copy(android.graphics.Bitmap.Config.ARGB_8888, true)
+    val canvas = android.graphics.Canvas(result)
+    
+    // Создаем форматтер для даты и времени
+    val formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")
+    val dateTimeText = dateTime.format(formatter)
+    
+    // Настраиваем стиль текста
+    val paint = android.graphics.Paint().apply {
+        color = android.graphics.Color.WHITE
+        textSize = result.width * 0.04f // Уменьшили размер текста до 4% от ширины фото
+        isAntiAlias = true
+        setShadowLayer(8f, 3f, 3f, android.graphics.Color.BLACK) // Увеличили тень для лучшей видимости
+        isFakeBoldText = true
+    }
+    
+    // Вычисляем позицию текста (правый нижний угол с отступом)
+    val padding = result.width * 0.03f // Увеличили отступ до 3% от ширины фото
+    val x = result.width - paint.measureText(dateTimeText) - padding
+    val y = result.height - padding
+    
+    // Рисуем текст
+    canvas.drawText(dateTimeText, x, y, paint)
+    
+    return result
 } 

@@ -49,6 +49,14 @@ fun MainScreen(
     onStatisticsClick: () -> Unit,
     viewModel: OrderViewModel
 ) {
+    println("\n=== MainScreen: Обновление UI ===")
+    println("Активных заказов: ${activeOrders.size}, счетчик: $activeOrdersCount")
+    println("Выполненных заказов: ${completedOrders.size}, счетчик: $completedOrdersCount")
+    
+    if (activeOrders.isNotEmpty()) {
+        println("Первый активный заказ: №${activeOrders[0].orderNumber}, статус: ${activeOrders[0].status}")
+    }
+    
     var selectedTabIndex by remember { mutableStateOf(0) }
     var showMap by remember { mutableStateOf(false) }
     val tabs = listOf("Активные ($activeOrdersCount)", "Выполненные ($completedOrdersCount)")

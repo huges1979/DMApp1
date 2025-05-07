@@ -35,6 +35,7 @@ import java.time.temporal.ChronoUnit
 import java.util.Calendar
 import android.app.DatePickerDialog
 import androidx.compose.ui.platform.LocalContext
+import androidx.navigation.NavController
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,10 +44,13 @@ fun StatisticsScreen(
     onNavigateBack: () -> Unit,
     onRebuildStatistics: () -> Unit = {},
     onClearStatistics: () -> Unit = {},
-    viewModel: OrderViewModel
+    onOrderClick: (Order) -> Unit,
+    viewModel: OrderViewModel,
+    navController: NavController
 ) {
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     var showClearConfirmDialog by remember { mutableStateOf(false) }
+    var showClearDateConfirmDialog by remember { mutableStateOf(false) }
     val completedOrdersForDate by viewModel.completedOrdersForDate.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val loadError by viewModel.loadError.collectAsState()
@@ -149,6 +153,15 @@ fun StatisticsScreen(
                             value = String.format("%.1f", dateStats.totalDistance),
                             backgroundColor = Color(0xFFFFE5E5)
                         )
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        // Карточка с заработком
+                        StatCard(
+                            title = "Заработано",
+                            value = String.format("%.2f ₽", dateStats.completedOrders * 221.54),
+                            backgroundColor = Color(0xFFE5FFE5) // Светло-зеленый цвет
+                        )
                     }
                 } else {
                     Box(
@@ -169,70 +182,57 @@ fun StatisticsScreen(
             
             // Секция списка заказов
             item {
-                Text(
-                    text = "Список заказов за ${selectedDate.format(fullDateFormatter)}",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(vertical = 8.dp)
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Список заказов за ${selectedDate.format(fullDateFormatter)}",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    
+                    if (dateStats != null && dateStats.completedOrders > 0) {
+                        IconButton(
+                            onClick = { showClearDateConfirmDialog = true }
+                        ) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Очистить статистику за дату",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                }
                 
+                println("\n=== StatisticsScreen: Отображение списка заказов ===")
                 println("Статистика за день: ${dateStats?.completedOrders}, Заказов в списке: ${completedOrdersForDate.size}")
+                println("Выбранная дата: ${selectedDate.format(fullDateFormatter)}")
                 
                 if (dateStats != null && dateStats.completedOrders > 0) {
                     if (completedOrdersForDate.isNotEmpty()) {
                         println("Отображаем ${completedOrdersForDate.size} заказов")
                         Column(modifier = Modifier.padding(bottom = 16.dp)) {
                             completedOrdersForDate.forEach { order ->
-                                println("Отображаем заказ №${order.orderNumber}")
+                                println("Отображаем заказ №${order.orderNumber}, статус: ${order.status}")
                                 OrderItem(
                                     order = order,
-                                    onOrderClick = { },
-                                    modifier = Modifier.fillMaxWidth()
+                                    onOrderClick = { onOrderClick(order) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    onPhotoViewClick = { photoUri ->
+                                        // Сохраняем URI фото и переходим на экран просмотра
+                                        navController.currentBackStackEntry?.savedStateHandle?.set("photo_uri", photoUri.toString())
+                                        navController.navigate("photo_viewer")
+                                    }
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
                             }
                         }
-                    } else if (isLoading) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(36.dp),
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = "Загрузка заказов...",
-                                textAlign = TextAlign.Center,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    } else if (loadError != null) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = null,
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clickable { viewModel.getCompletedOrdersForDate(selectedDate) },
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = "Ошибка загрузки данных. Нажмите, чтобы повторить.",
-                                textAlign = TextAlign.Center,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        }
                     } else {
+                        println("Нет заказов для отображения, хотя статистика показывает ${dateStats.completedOrders} заказов")
                         Text(
                             text = "Нет данных о заказах за выбранную дату",
                             modifier = Modifier
@@ -243,8 +243,9 @@ fun StatisticsScreen(
                         )
                     }
                 } else {
+                    println("Нет статистики за выбранную дату")
                     Text(
-                        text = "Нет выполненных заказов\nза выбранную дату",
+                        text = "Нет данных о заказах за выбранную дату",
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 24.dp),
@@ -252,6 +253,7 @@ fun StatisticsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                println("=== StatisticsScreen: Завершено отображение списка заказов ===\n")
             }
         }
     }
@@ -274,6 +276,30 @@ fun StatisticsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showClearConfirmDialog = false }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
+    
+    // Диалог подтверждения очистки статистики за дату
+    if (showClearDateConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDateConfirmDialog = false },
+            title = { Text("Очистка статистики") },
+            text = { Text("Вы действительно хотите очистить статистику за ${selectedDate.format(fullDateFormatter)}? Это действие нельзя отменить.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.clearStatisticsForDate(selectedDate)
+                        showClearDateConfirmDialog = false
+                    }
+                ) {
+                    Text("Очистить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearDateConfirmDialog = false }) {
                     Text("Отмена")
                 }
             }
@@ -329,15 +355,15 @@ fun StatCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(120.dp)  // Фиксированная высота для всех карточек
+            .height(65.dp)  // Еще больше уменьшаем высоту карточки
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         colors = CardDefaults.cardColors(containerColor = backgroundColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)  // Уменьшаем тень
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp),
+                .padding(6.dp),  // Уменьшаем отступы
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -346,24 +372,25 @@ fun StatCard(
             ) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface,
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    fontSize = 14.sp  // Немного уменьшаем размер заголовка
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(2.dp))  // Минимальный отступ
                 Surface(
                     modifier = Modifier
                         .wrapContentSize()
-                        .padding(horizontal = 8.dp),
+                        .padding(horizontal = 2.dp),
                     color = Color.Transparent
                 ) {
                     Text(
                         text = value,
-                        style = MaterialTheme.typography.headlineMedium,
+                        style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
                         textAlign = TextAlign.Center,
-                        fontSize = 28.sp
+                        fontSize = 20.sp  // Немного уменьшаем размер значения
                     )
                 }
             }

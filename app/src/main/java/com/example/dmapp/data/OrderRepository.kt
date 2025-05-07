@@ -14,8 +14,12 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import com.yandex.mapkit.geometry.BoundingBox
 import com.yandex.mapkit.geometry.Geometry
+import android.content.Context
 
-class OrderRepository(private val orderDao: OrderDao) {
+class OrderRepository(
+    private val orderDao: OrderDao,
+    private val context: Context
+) {
     private val searchManager = SearchFactory.getInstance().createSearchManager(SearchManagerType.COMBINED)
 
     val activeOrders = orderDao.getActiveOrders()
@@ -143,138 +147,236 @@ class OrderRepository(private val orderDao: OrderDao) {
     }
 
     suspend fun importOrders(text: String): ImportResult {
-        var newOrders = 0
-        var duplicates = 0
+        println("\n=== importOrders: Начало импорта заказов ===")
+        println("Получен текст для импорта: ${text.take(100)}${if (text.length > 100) "..." else ""}")
         
-        // Получаем текущий максимальный номер заказа
-        val currentMaxOrderNumber = orderDao.getMaxOrderNumber() ?: 0
-        var nextOrderNumber = currentMaxOrderNumber + 1
-
-        // Разбиваем текст на отдельные заказы и создаем временный список
-        val ordersToImport = mutableListOf<Order>()
+        // Получаем текущие выполненные заказы из статистики
+        val statisticsRepository = StatisticsRepository(context)
+        val existingStatsOrders = statisticsRepository.getOrdersFromStatisticsForDate(LocalDate.now())
+        println("Найдено ${existingStatsOrders.size} существующих заказов в статистике")
         
-        println("\n=== Starting order import process ===")
+        val lines = text.split("\n")
+        println("Разбор ${lines.size} строк")
         
-        // Улучшенное разбиение текста на заказы
-        // Ищем все строки, содержащие "Заказ" с помощью регулярного выражения
-        val orderRegex = "(?:^|\\n)\\s*(Заказ\\s*(?:№)?\\s*\\d+.+?)(?=\\n\\s*Заказ\\s*(?:№)?\\s*\\d+|$)".toRegex(RegexOption.DOT_MATCHES_ALL)
-        val orderMatches = orderRegex.findAll(text)
+        var importedCount = 0
+        var skippedCount = 0
+        var errorCount = 0
         
-        val allOrders = orderMatches.map { it.groupValues[1].trim() }.toList()
-        println("Found ${allOrders.size} orders in text")
+        // Получаем максимальный номер заказа
+        val maxOrderNumber = orderDao.getMaxOrderNumber() ?: 0
+        println("Текущий максимальный номер заказа: $maxOrderNumber")
         
-        // Если не найдено ни одного заказа, пробуем запасной вариант разделения
-        val processedOrders = if (allOrders.isEmpty()) {
-            println("No orders found using regex, trying fallback method")
-            text.split("\n\n")
-                .filter { it.trim().isNotEmpty() }
-                .filter { order ->
-                    val containsOrderWord = order.contains("Заказ", ignoreCase = true)
-                    if (!containsOrderWord) {
-                        println("Skipping text block without 'Заказ' keyword: ${order.take(50)}...")
+        var currentOrderNumber = maxOrderNumber + 1
+        println("Начинаем импорт с номера: $currentOrderNumber")
+        
+        var currentOrder = mutableMapOf<String, String>()
+        var isProcessingOrder = false
+        
+        for (line in lines) {
+            if (line.isBlank()) {
+                if (isProcessingOrder) {
+                    // Завершаем обработку текущего заказа
+                    try {
+                        val externalOrderNumber = currentOrder["orderNumber"] ?: continue
+                        println("Обработка заказа с внешним номером: $externalOrderNumber")
+                        
+                        // Проверяем, не существует ли уже такой заказ
+                        val existingOrder = orderDao.findDuplicateOrder(externalOrderNumber)
+                        if (existingOrder != null) {
+                            println("Заказ $externalOrderNumber уже существует в основной базе, пропускаем")
+                            skippedCount++
+                            currentOrder.clear()
+                            isProcessingOrder = false
+                            continue
+                        }
+                        
+                        println("Заказ $externalOrderNumber не найден в основной базе, создаем новый")
+                        
+                        // Парсим время доставки
+                        val deliveryInterval = currentOrder["deliveryInterval"] ?: "с 09:00 до 18:00"
+                        val (startTime, endTime) = parseDeliveryInterval(deliveryInterval)
+                        
+                        // Парсим вес
+                        val weightStr = currentOrder["weight"] ?: "0.0"
+                        val weight = weightStr.replace("кг", "").trim().toDoubleOrNull() ?: 0.0
+                        
+                        // Парсим сумму заказа
+                        val amountStr = currentOrder["orderAmount"] ?: "0.0"
+                        val amount = amountStr.replace("₽", "").trim().toDoubleOrNull() ?: 0.0
+                        
+                        // Создаем новый заказ
+                        val order = Order(
+                            orderNumber = currentOrderNumber++,
+                            externalOrderNumber = externalOrderNumber,
+                            pickupLocation = currentOrder["pickupLocation"] ?: "",
+                            sector = currentOrder["sector"] ?: "",
+                            place = currentOrder["place"] ?: "",
+                            deliveryAddress = currentOrder["deliveryAddress"] ?: "",
+                            clientName = currentOrder["clientName"] ?: "",
+                            clientPhone = currentOrder["clientPhone"] ?: "",
+                            clientComment = currentOrder["clientComment"],
+                            deliveryTimeStart = startTime,
+                            deliveryTimeEnd = endTime,
+                            weight = weight,
+                            volume = 0.0,
+                            isPrepaid = currentOrder["isPrepaid"]?.contains("Да") == true,
+                            courierName = currentOrder["courierName"] ?: "",
+                            courierPhone = currentOrder["courierPhone"] ?: "",
+                            orderAmount = amount,
+                            status = OrderStatus.NEW,
+                            isCompleted = false
+                        )
+                        
+                        println("Создан новый заказ: №${order.orderNumber}, внешний номер: ${order.externalOrderNumber}")
+                        
+                        // Сохраняем заказ в базу данных
+                        val id = orderDao.insert(order)
+                        println("Заказ сохранен в базу данных с id: $id")
+                        
+                        importedCount++
+                    } catch (e: Exception) {
+                        println("Ошибка при обработке заказа: ${e.message}")
+                        e.printStackTrace()
+                        errorCount++
                     }
-                    containsOrderWord
+                    
+                    currentOrder.clear()
+                    isProcessingOrder = false
                 }
-        } else {
-            allOrders
-        }
-        
-        println("Processing ${processedOrders.size} orders")
-        
-        // Обрабатываем каждый заказ
-        processedOrders.forEach { orderText ->
-            try {
-                val orderMap = parseOrderText(orderText)
-                val externalOrderNumber = orderMap["orderNumber"]
-                
-                if (externalOrderNumber == null) {
-                    println("WARNING: Could not extract order number from text. First 100 chars: ${orderText.take(100)}...")
-                    return@forEach
-                }
-                
-                println("Processing order $externalOrderNumber")
-
-                // Проверяем на дубликаты
-                val existingOrder = orderDao.findDuplicateOrder(externalOrderNumber)
-                if (existingOrder == null) {
-                    // Парсим время доставки
-                    val (startTime, endTime) = parseDeliveryInterval(orderMap["deliveryInterval"] ?: "")
-                    
-                    // Извлекаем адрес доставки и заменяем "ё" на "е"
-                    var deliveryAddress = orderMap["deliveryAddress"] ?: ""
-                    
-                    // Заменяем "ё" на "е" в адресе при импорте
-                    val addressWithoutYo = deliveryAddress.replace('ё', 'е').replace('Ё', 'Е')
-                    
-                    // Если была произведена замена, логируем её
-                    if (deliveryAddress != addressWithoutYo) {
-                        println("В адресе заменена 'ё' на 'е': '$deliveryAddress' -> '$addressWithoutYo'")
-                        deliveryAddress = addressWithoutYo
-                    }
-                    
-                    println("Delivery address: $deliveryAddress")
-                    
-                    // Геокодируем адрес
-                    println("Starting geocoding for address: $deliveryAddress")
-                    val coordinates = geocodeAddress(deliveryAddress)
-                    
-                    if (coordinates != null) {
-                        println("Successfully geocoded address: $deliveryAddress")
-                        println("Coordinates: lat=${coordinates.latitude}, lng=${coordinates.longitude}")
+                continue
+            }
+            
+            when {
+                line.startsWith("Заказ") -> {
+                    isProcessingOrder = true
+                    // Извлекаем номер заказа из строки вида "Заказ 1234567890 (предоплачен):"
+                    val fullLine = line.substringAfter("Заказ").trim()
+                    // Ищем последовательность из 10 цифр
+                    val orderNumberMatch = "\\d{10}".toRegex().find(fullLine)
+                    if (orderNumberMatch != null) {
+                        val orderNumber = orderNumberMatch.value
+                        currentOrder["orderNumber"] = orderNumber
+                        println("Найден номер заказа: $orderNumber")
                     } else {
-                        println("Failed to geocode address: $deliveryAddress")
-                        println("Will use default coordinates (center of Moscow)")
+                        println("Не удалось найти номер заказа (10 цифр) в строке: $line")
                     }
-                    
-                    // Создаем новый заказ (пока без номера)
-                    val order = Order(
-                        orderNumber = 0, // Временный номер
-                        externalOrderNumber = externalOrderNumber,
-                        pickupLocation = orderMap["pickupLocation"] ?: "",
-                        sector = orderMap["sector"] ?: "",
-                        place = orderMap["place"] ?: "",
-                        clientPhone = orderMap["clientPhone"] ?: "",
-                        clientName = orderMap["clientName"] ?: "",
-                        deliveryAddress = deliveryAddress,
-                        clientComment = orderMap["clientComment"],
-                        deliveryTimeStart = startTime,
-                        deliveryTimeEnd = endTime,
-                        weight = orderMap["weight"]?.replace(" кг", "")?.toDoubleOrNull() ?: 0.0,
-                        volume = orderMap["volume"]?.replace(" м³", "")?.toDoubleOrNull() ?: 0.0,
-                        isPrepaid = orderMap["isPrepaid"]?.contains("Да") ?: false,
-                        courierName = orderMap["courierName"] ?: "",
-                        courierPhone = orderMap["courierPhone"] ?: "",
-                        orderAmount = orderMap["orderAmount"]?.replace("[^0-9.]".toRegex(), "")?.toDoubleOrNull() ?: 0.0,
-                        latitude = coordinates?.latitude,
-                        longitude = coordinates?.longitude
-                    )
-                    
-                    ordersToImport.add(order)
-                    newOrders++
-                    println("Order $externalOrderNumber added for import")
-                } else {
-                    duplicates++
-                    println("Order $externalOrderNumber is a duplicate, skipping")
                 }
-            } catch (e: Exception) {
-                println("ERROR processing order text: ${e}")
-                println("Problematic text: ${orderText.take(200)}...")
+                line.startsWith("Забрать из:") -> {
+                    currentOrder["pickupLocation"] = line.substringAfter("Забрать из:").trim()
+                }
+                line.startsWith("Cектор:") -> {
+                    val parts = line.split("Место:")
+                    currentOrder["sector"] = parts[0].substringAfter("Cектор:").trim()
+                    if (parts.size > 1) {
+                        currentOrder["place"] = parts[1].trim()
+                    }
+                }
+                line.startsWith("Телефон клиента:") -> {
+                    currentOrder["clientPhone"] = line.substringAfter("Телефон клиента:").trim()
+                }
+                line.startsWith("ФИО клиента:") -> {
+                    currentOrder["clientName"] = line.substringAfter("ФИО клиента:").trim()
+                }
+                line.startsWith("Адрес клиента:") -> {
+                    currentOrder["deliveryAddress"] = line.substringAfter("Адрес клиента:").trim()
+                }
+                line.startsWith("Комментарий клиента:") -> {
+                    currentOrder["clientComment"] = line.substringAfter("Комментарий клиента:").trim()
+                }
+                line.startsWith("Интервал доставки:") -> {
+                    currentOrder["deliveryInterval"] = line.substringAfter("Интервал доставки:").trim()
+                }
+                line.startsWith("Вес заказа:") -> {
+                    currentOrder["weight"] = line.substringAfter("Вес заказа:").trim()
+                }
+                line.startsWith("Заказ предоплачен:") -> {
+                    currentOrder["isPrepaid"] = line.substringAfter("Заказ предоплачен:").trim()
+                }
+                line.startsWith("Назначен курьер:") -> {
+                    val courierInfo = line.substringAfter("Назначен курьер:").trim()
+                    val parts = courierInfo.split("+")
+                    if (parts.size > 1) {
+                        currentOrder["courierName"] = parts[0].trim()
+                        currentOrder["courierPhone"] = "+" + parts[1].trim()
+                    }
+                }
+                line.startsWith("Сумма заказа:") -> {
+                    currentOrder["orderAmount"] = line.substringAfter("Сумма заказа:").trim()
+                }
             }
         }
         
-        // Сортируем заказы по времени доставки
-        val sortedOrders = ordersToImport.sortedBy { it.deliveryTimeStart }
-        
-        // Присваиваем порядковые номера и сохраняем в базу
-        sortedOrders.forEach { order ->
-            val orderWithNumber = order.copy(orderNumber = nextOrderNumber)
-            orderDao.insert(orderWithNumber)
-            println("Saved order ${orderWithNumber.externalOrderNumber} with number $nextOrderNumber")
-            nextOrderNumber++
+        // Обрабатываем последний заказ, если он есть
+        if (isProcessingOrder && currentOrder.isNotEmpty()) {
+            try {
+                val externalOrderNumber = currentOrder["orderNumber"] ?: return ImportResult(importedCount, skippedCount, errorCount)
+                
+                // Проверяем, не существует ли уже такой заказ
+                val existingOrder = orderDao.findDuplicateOrder(externalOrderNumber)
+                if (existingOrder != null) {
+                    println("Заказ $externalOrderNumber уже существует в основной базе, пропускаем")
+                    skippedCount++
+                    return ImportResult(importedCount, skippedCount, errorCount)
+                }
+                
+                println("Заказ $externalOrderNumber не найден в основной базе, создаем новый")
+                
+                // Парсим время доставки
+                val deliveryInterval = currentOrder["deliveryInterval"] ?: "с 09:00 до 18:00"
+                val (startTime, endTime) = parseDeliveryInterval(deliveryInterval)
+                
+                // Парсим вес
+                val weightStr = currentOrder["weight"] ?: "0.0"
+                val weight = weightStr.replace("кг", "").trim().toDoubleOrNull() ?: 0.0
+                
+                // Парсим сумму заказа
+                val amountStr = currentOrder["orderAmount"] ?: "0.0"
+                val amount = amountStr.replace("₽", "").trim().toDoubleOrNull() ?: 0.0
+                
+                // Создаем новый заказ
+                val order = Order(
+                    orderNumber = currentOrderNumber,
+                    externalOrderNumber = externalOrderNumber,
+                    pickupLocation = currentOrder["pickupLocation"] ?: "",
+                    sector = currentOrder["sector"] ?: "",
+                    place = currentOrder["place"] ?: "",
+                    deliveryAddress = currentOrder["deliveryAddress"] ?: "",
+                    clientName = currentOrder["clientName"] ?: "",
+                    clientPhone = currentOrder["clientPhone"] ?: "",
+                    clientComment = currentOrder["clientComment"],
+                    deliveryTimeStart = startTime,
+                    deliveryTimeEnd = endTime,
+                    weight = weight,
+                    volume = 0.0,
+                    isPrepaid = currentOrder["isPrepaid"]?.contains("Да") == true,
+                    courierName = currentOrder["courierName"] ?: "",
+                    courierPhone = currentOrder["courierPhone"] ?: "",
+                    orderAmount = amount,
+                    status = OrderStatus.NEW,
+                    isCompleted = false
+                )
+                
+                println("Создан новый заказ: №${order.orderNumber}, внешний номер: ${order.externalOrderNumber}")
+                
+                // Сохраняем заказ в базу данных
+                val id = orderDao.insert(order)
+                println("Заказ сохранен в базу данных с id: $id")
+                
+                importedCount++
+            } catch (e: Exception) {
+                println("Ошибка при обработке последнего заказа: ${e.message}")
+                e.printStackTrace()
+                errorCount++
+            }
         }
         
-        println("=== Import completed: $newOrders new orders, $duplicates duplicates ===\n")
-        return ImportResult(newOrders, duplicates)
+        println("Импорт завершен:")
+        println("- Импортировано заказов: $importedCount")
+        println("- Пропущено заказов: $skippedCount")
+        println("- Ошибок: $errorCount")
+        println("=== importOrders: Завершено ===\n")
+        
+        return ImportResult(importedCount, skippedCount, errorCount)
     }
 
     private fun parseOrderText(text: String): Map<String, String> {
@@ -370,7 +472,30 @@ class OrderRepository(private val orderDao: OrderDao) {
     }
 
     suspend fun updateOrderStatus(order: Order, newStatus: OrderStatus) {
-        orderDao.update(order.copy(status = newStatus))
+        println("OrderRepository.updateOrderStatus: Обновление статуса заказа ${order.orderNumber} на $newStatus")
+        println("OrderRepository.updateOrderStatus: Текущий статус: ${order.status}, isCompleted: ${order.isCompleted}")
+        
+        val updatedOrder = order.copy(
+            status = newStatus,
+            isCompleted = newStatus == OrderStatus.COMPLETED
+        )
+        println("OrderRepository.updateOrderStatus: Новый статус: ${updatedOrder.status}, isCompleted: ${updatedOrder.isCompleted}")
+        
+        // Сначала обновляем статус в основной базе данных
+        orderDao.update(updatedOrder)
+        println("OrderRepository.updateOrderStatus: Заказ обновлен в базе данных")
+        
+        // Проверяем, что заказ действительно обновился
+        val checkOrder = orderDao.findOrderById(order.id)
+        println("OrderRepository.updateOrderStatus: Проверка после обновления - статус: ${checkOrder?.status}, isCompleted: ${checkOrder?.isCompleted}")
+        
+        // Если заказ помечен как выполненный, сохраняем его в статистику
+        if (newStatus == OrderStatus.COMPLETED && checkOrder != null) {
+            println("OrderRepository.updateOrderStatus: Заказ помечен как выполненный, сохраняем в статистику")
+            val statisticsRepository = StatisticsRepository(context)
+            statisticsRepository.saveOrderToStatistics(checkOrder)
+            println("OrderRepository.updateOrderStatus: Заказ сохранен в статистику")
+        }
     }
 
     suspend fun deleteCompletedOrders(): Int {
@@ -385,7 +510,7 @@ class OrderRepository(private val orderDao: OrderDao) {
         val formattedDate = date.toString()
         println("Getting completed orders for date: $formattedDate")
         
-        // Получаем все выполненные заказы через новый метод
+        // Получаем все выполненные заказы
         val allCompletedOrders = orderDao.getAllCompletedOrdersForStatistics()
         println("Total completed orders in DB: ${allCompletedOrders.size}")
         
@@ -570,11 +695,19 @@ class OrderRepository(private val orderDao: OrderDao) {
 
     suspend fun updateOrderPhoto(orderId: Long, photoUri: String?) {
         orderDao.updateOrderPhoto(orderId, photoUri)
-        println("Обновлено фото для заказа с ID $orderId: $photoUri")
+    }
+
+    suspend fun updateOrderPhotoDateTime(orderId: Long, photoDateTime: LocalDateTime?) {
+        orderDao.updateOrderPhotoDateTime(orderId, photoDateTime)
+    }
+
+    suspend fun getOrderById(orderId: Long): Order? {
+        return orderDao.findOrderById(orderId)
     }
 }
 
 data class ImportResult(
     val newOrders: Int,
-    val duplicates: Int
+    val duplicates: Int,
+    val errors: Int
 ) 

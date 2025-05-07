@@ -18,6 +18,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -25,10 +26,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import com.example.dmapp.data.Order
 import com.example.dmapp.data.OrderStatus
 import java.io.File
+import java.io.FileOutputStream
 import java.time.format.DateTimeFormatter
+import android.widget.Toast
 
 /**
  * Общий компонент для отображения детальной информации о заказе.
@@ -53,6 +57,7 @@ fun OrderDetailsContent(
     
     // Получаем контекст для запуска Intent'ов
     val context = LocalContext.current
+    val dateFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")
     
     // Функция для копирования номера заказа и открытия сайта
     fun copyOrderNumberAndOpenSite() {
@@ -79,6 +84,7 @@ fun OrderDetailsContent(
         modifier = modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
+            .padding(16.dp)
     ) {
         // Время доставки
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -382,99 +388,143 @@ fun OrderDetailsContent(
             maxLines = 5
         )
         
-        // После заметок к заказу, но перед кнопкой смены статуса добавляем секцию фото
-        if (onTakePhoto != null) {
-            Spacer(modifier = Modifier.height(24.dp))
+        // Фото заказа
+        if (order.photoUri != null) {
+            var bitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
             
-            Text(
-                text = "Фотография",
-                style = MaterialTheme.typography.titleMedium,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold
-            )
-            
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            // Если есть фото - показываем его
-            if (order.photoUri != null) {
-                val context = LocalContext.current
-                var bitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
-                
-                // Загружаем изображение
-                LaunchedEffect(order.photoUri) {
-                    try {
-                        // Извлекаем файл из URI
-                        val uri = Uri.parse(order.photoUri)
-                        val inputStream = context.contentResolver.openInputStream(uri)
-                        bitmap = BitmapFactory.decodeStream(inputStream)
-                        inputStream?.close()
-                    } catch (e: Exception) {
-                        println("Ошибка загрузки изображения: ${e.message}")
-                    }
+            // Загружаем изображение
+            LaunchedEffect(order.photoUri) {
+                try {
+                    val uri = Uri.parse(order.photoUri)
+                    val inputStream = context.contentResolver.openInputStream(uri)
+                    bitmap = BitmapFactory.decodeStream(inputStream)
+                    inputStream?.close()
+                } catch (e: Exception) {
+                    println("Ошибка загрузки изображения: ${e.message}")
                 }
-                
+            }
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .weight(1f)
                         .height(200.dp)
-                        .clickable { 
-                            onPhotoClick?.invoke(Uri.parse(order.photoUri))
-                        }
+                        .clip(MaterialTheme.shapes.medium)
+                        .clickable { onPhotoClick?.invoke(Uri.parse(order.photoUri)) }
                 ) {
-                    // Отображаем фото
                     bitmap?.let { loadedBitmap ->
                         Image(
                             bitmap = loadedBitmap.asImageBitmap(),
                             contentDescription = "Фото заказа",
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .fillMaxHeight(),
-                            contentScale = ContentScale.Fit
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
                         )
                     } ?: Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("Загрузка фото...")
-                    }
-                    
-                    // Кнопка замены фото
-                    Button(
-                        onClick = { onTakePhoto() },
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(16.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            strokeWidth = 2.dp
                         )
-                    ) {
-                        Icon(
-                            Icons.Default.PhotoCamera,
-                            contentDescription = "Переснять фото",
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Переснять")
                     }
                 }
-            } else {
-                // Если фото нет - показываем кнопку для добавления
-                OutlinedButton(
-                    onClick = { onTakePhoto() },
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(vertical = 12.dp)
+                
+                // Кнопка WhatsApp
+                IconButton(
+                    onClick = {
+                        try {
+                            // Копируем фото в буфер обмена
+                            bitmap?.let { photoBitmap ->
+                                val clipboardManager = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                
+                                // Создаем временный файл для фото
+                                val tempFile = File.createTempFile("photo_", ".jpg", context.cacheDir)
+                                val outputStream = FileOutputStream(tempFile)
+                                photoBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 100, outputStream)
+                                outputStream.close()
+                                
+                                // Создаем URI для файла
+                                val photoUri = FileProvider.getUriForFile(
+                                    context,
+                                    "com.example.dmapp.fileprovider",
+                                    tempFile
+                                )
+                                
+                                // Копируем фото в буфер обмена
+                                val clip = android.content.ClipData.newUri(
+                                    context.contentResolver,
+                                    "Фото заказа",
+                                    photoUri
+                                )
+                                clipboardManager.setPrimaryClip(clip)
+                                
+                                // Показываем уведомление
+                                Toast.makeText(
+                                    context,
+                                    "Фото скопировано в буфер обмена",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                            
+                            // Открываем WhatsApp
+                            val phoneNumber = order.clientPhone.replace(Regex("[^0-9]"), "")
+                            val intent = Intent(Intent.ACTION_VIEW).apply {
+                                data = Uri.parse("https://api.whatsapp.com/send?phone=$phoneNumber")
+                            }
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            // Если WhatsApp не установлен, открываем веб-версию
+                            val phoneNumber = order.clientPhone.replace(Regex("[^0-9]"), "")
+                            val webIntent = Intent(Intent.ACTION_VIEW).apply {
+                                data = Uri.parse("https://web.whatsapp.com/send?phone=$phoneNumber")
+                            }
+                            context.startActivity(webIntent)
+                        }
+                    },
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .size(48.dp)
                 ) {
                     Icon(
-                        Icons.Default.PhotoCamera,
-                        contentDescription = "Добавить фото",
-                        modifier = Modifier.size(24.dp)
+                        painter = androidx.compose.ui.res.painterResource(id = com.example.dmapp.R.drawable.ic_whatsapp),
+                        contentDescription = "Отправить в WhatsApp",
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(32.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Добавить фото")
                 }
+            }
+            
+            // Отображение даты и времени фотографии
+            order.photoDateTime?.let { dateTime ->
+                Text(
+                    text = "Фото сделано: ${dateTime.format(dateFormatter)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+
+        // Кнопка сделать фото
+        if (onTakePhoto != null) {
+            Button(
+                onClick = { onTakePhoto() },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.PhotoCamera,
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Сделать фото")
             }
         }
         
