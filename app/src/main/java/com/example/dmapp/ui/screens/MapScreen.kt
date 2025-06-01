@@ -78,6 +78,12 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.LocationOn
 import android.graphics.PointF
+import androidx.compose.foundation.background
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+// import com.example.dmapp.ui.components.OrderMiniCard
 
 // Определяем временные интервалы как enum на уровне файла
 enum class DeliveryTimeRange(val title: String, val startHour: Int, val endHour: Int) {
@@ -171,7 +177,6 @@ fun MapScreen(
     // Для показа ошибки, если такая возникнет при инициализации карты
     var errorMessage by remember { mutableStateOf<String?>(null) }
     // Для отображения деталей заказа при нажатии
-    var showOrderDetails by remember { mutableStateOf(false) }
     var selectedOrder by remember { mutableStateOf<Order?>(null) }
     // Для управления диалогом фильтра времени
     var showTimeFilterDialog by remember { mutableStateOf(false) }
@@ -1448,91 +1453,138 @@ fun MapScreen(
                 }
             )
             
-            // Нижняя панель с информацией о заказе - теперь внутри Box
+            // Нижняя панель с информацией о заказе
             selectedOrder?.let { currentOrder ->
-                println("Showing card for order ${currentOrder.orderNumber}")
-                
-                // Используем Card вместо ModalBottomSheet с анимацией появления
+                var isExpanded by remember { mutableStateOf(false) }
+                // Компактная карточка
                 AnimatedVisibility(
-                    visible = true,
-                    enter = slideInVertically(
-                        initialOffsetY = { it }, // Начинаем снизу экрана
-                        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
-                    ),
-                    exit = slideOutVertically(
-                        targetOffsetY = { it }, // Уходим вниз экрана
-                        animationSpec = tween(durationMillis = 200)
-                    )
+                    visible = !isExpanded,
+                    enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(250)),
+                    exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(200)),
+                    modifier = Modifier.align(Alignment.BottomCenter)
                 ) {
+                    val cardColor = if (currentOrder.status == OrderStatus.IN_PROGRESS) ComposeColor(0xFFB9F6CA) else ComposeColor.White
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .align(Alignment.BottomCenter)
-                            .padding(16.dp),
+                            .padding(start = 16.dp, end = 16.dp, bottom = 32.dp)
+                            .clickable { isExpanded = true },
                         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-                        colors = CardDefaults.cardColors(containerColor = ComposeColor.White)
+                        colors = CardDefaults.cardColors(containerColor = cardColor)
+                    ) {
+                        Box(Modifier.fillMaxWidth()) {
+                            // Крестик в правом верхнем углу
+                            IconButton(
+                                onClick = { selectedOrder = null },
+                                modifier = Modifier.align(Alignment.TopEnd)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Закрыть")
+                            }
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(end = 40.dp) // Оставляем место под крестик
+                                ) {
+                                    Text(
+                                        text = "${currentOrder.orderNumber}. ${currentOrder.externalOrderNumber ?: ""}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "${currentOrder.orderAmount} ₽",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Text(currentOrder.clientName ?: "", style = MaterialTheme.typography.bodyMedium)
+                                Spacer(Modifier.height(4.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.LocationOn, contentDescription = null, tint = ComposeColor.Gray, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(currentOrder.deliveryAddress, style = MaterialTheme.typography.bodySmall)
+                                }
+                                Spacer(Modifier.height(2.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.AccessTime, contentDescription = null, tint = ComposeColor.Gray, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        text = "${currentOrder.deliveryTimeStart.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))} - ${currentOrder.deliveryTimeEnd?.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")) ?: ""}",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                                Spacer(Modifier.height(2.dp))
+                                if (!currentOrder.notes.isNullOrBlank()) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Edit, contentDescription = null, tint = ComposeColor.Gray, modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(currentOrder.notes ?: "", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // Детальная карточка
+                AnimatedVisibility(
+                    visible = isExpanded,
+                    enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(250)),
+                    exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(200)),
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                ) {
+                    val cardColor = if (currentOrder.status == OrderStatus.IN_PROGRESS) ComposeColor(0xFFB9F6CA) else ComposeColor.White
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 8.dp, end = 8.dp, bottom = 16.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 12.dp),
+                        colors = CardDefaults.cardColors(containerColor = cardColor)
                     ) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(16.dp)
                         ) {
-                            // Заголовок с кнопкой закрытия
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(bottom = 8.dp),
+                                modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // Добавляем заголовок с номером заказа
                                 Text(
                                     text = "${currentOrder.orderNumber}. Заказ ${currentOrder.externalOrderNumber ?: "Н/Д"}",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 18.sp
                                 )
-                                
-                                IconButton(onClick = { 
-                                    println("Close button clicked")
-                                    selectedOrder = null 
-                                }) {
-                                    Icon(Icons.Default.Close, contentDescription = "Закрыть")
+                                IconButton(onClick = { isExpanded = false }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Свернуть")
                                 }
                             }
-                            
                             Divider()
-                            
-                            // Используем общий компонент OrderDetailsContent
                             OrderDetailsContent(
                                 order = currentOrder,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(top = 8.dp),
                                 onStatusChange = { order, newStatus ->
-                                    // Обновляем статус заказа локально
-                                    println("Status changed from ${order.status} to $newStatus")
                                     selectedOrder = order.copy(status = newStatus)
-                                    
-                                    // Вызываем обработчик обновления статуса, если он передан
                                     onStatusUpdate?.invoke(order, newStatus)
                                 },
                                 onNotesChange = { order, newNotes ->
-                                    // Обновляем заметки заказа локально
-                                    println("Notes changed for order ${order.orderNumber}")
                                     selectedOrder = order.copy(notes = newNotes)
-                                    
-                                    // Вызываем обработчик обновления заметок, если он передан
                                     onStatusUpdate?.invoke(order.copy(notes = newNotes), order.status)
                                 },
                                 onTakePhoto = {
-                                    // Закрываем текущую карточку
                                     selectedOrder = null
-                                    // Открываем экран съемки фото
                                     viewModel.navigateToPhotoCapture(currentOrder)
                                 },
                                 onPhotoClick = { uri ->
-                                    // Открываем фото в полноэкранном режиме
                                     viewModel.navigateToPhotoViewer(uri)
                                 }
                             )

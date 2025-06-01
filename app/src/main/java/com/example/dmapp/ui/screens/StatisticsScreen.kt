@@ -102,19 +102,26 @@ fun StatisticsScreen(
         ) {
             // Выбор даты
             item {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
+                // Календарная иконка для выбора даты
+                var showCalendar by remember { mutableStateOf(false) }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
                 ) {
-                    items(recentDates) { date ->
-                        val isSelected = date == selectedDate
-                        DateChip(
-                            date = date,
-                            shortDateFormatter = shortDateFormatter,
-                            isSelected = isSelected,
-                            onClick = { selectedDate = date }
-                        )
+                    IconButton(onClick = { showCalendar = true }) {
+                        Icon(Icons.Default.CalendarToday, contentDescription = "Открыть календарь")
                     }
+                }
+                if (showCalendar) {
+                    // Кастомный календарь
+                    CalendarDialog(
+                        markedDates = statistics.dailyStats.map { it.date },
+                        onDateSelected = { date ->
+                            selectedDate = date
+                            showCalendar = false
+                        },
+                        onDismiss = { showCalendar = false }
+                    )
                 }
             }
             
@@ -396,4 +403,97 @@ fun StatCard(
             }
         }
     }
+}
+
+@Composable
+fun CalendarDialog(
+    markedDates: List<LocalDate>,
+    onDateSelected: (LocalDate) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val today = LocalDate.now()
+    var currentMonth by remember { mutableStateOf(today.withDayOfMonth(1)) }
+    val daysInMonth = currentMonth.lengthOfMonth()
+    val firstDayOfWeek = currentMonth.dayOfWeek.value % 7 // 0 - воскресенье
+    val weeks = ((daysInMonth + firstDayOfWeek - 1) / 7) + 1
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {},
+        title = {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { currentMonth = currentMonth.minusMonths(1) }) {
+                    Text("<")
+                }
+                Text(
+                    text = currentMonth.format(DateTimeFormatter.ofPattern("LLLL yyyy")),
+                    style = MaterialTheme.typography.titleMedium
+                )
+                IconButton(onClick = { currentMonth = currentMonth.plusMonths(1) }) {
+                    Text(">")
+                }
+            }
+        },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Row(Modifier.fillMaxWidth()) {
+                    listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс").forEach {
+                        Text(
+                            it,
+                            modifier = Modifier.weight(1f),
+                            textAlign = TextAlign.Center,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                for (week in 0 until weeks) {
+                    Row(Modifier.fillMaxWidth()) {
+                        for (dayOfWeek in 0..6) {
+                            val dayOfMonth = week * 7 + dayOfWeek - firstDayOfWeek + 2
+                            if (dayOfMonth in 1..daysInMonth) {
+                                val date = currentMonth.withDayOfMonth(dayOfMonth)
+                                val isMarked = markedDates.contains(date)
+                                val isToday = date == today
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .aspectRatio(1f)
+                                        .padding(2.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(
+                                            when {
+                                                isMarked -> Color(0xFFB9F6CA)
+                                                else -> Color.White
+                                            }
+                                        )
+                                        .border(
+                                            width = if (isToday) 2.dp else 1.dp,
+                                            color = if (isToday) Color(0xFF2196F3) else Color.LightGray,
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable { if (isMarked) onDateSelected(date) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = dayOfMonth.toString(),
+                                        color = if (isMarked) Color.Black else Color.Gray,
+                                        fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
+                            } else {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Закрыть") }
+        }
+    )
 } 
