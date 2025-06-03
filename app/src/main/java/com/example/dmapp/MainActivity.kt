@@ -122,8 +122,12 @@ class MainActivity : ComponentActivity() {
                         if (showImportDialog) {
                             ImportDialog(
                                 onDismiss = { showImportDialog = false },
-                                onImport = { text ->
-                                    viewModel.importOrders(text)
+                                onImport = { text, isNewFormat ->
+                                    if (isNewFormat) {
+                                        viewModel.importOrdersNewFormat(text)
+                                    } else {
+                                        viewModel.importOrders(text)
+                                    }
                                     showImportDialog = false
                                 }
                             )

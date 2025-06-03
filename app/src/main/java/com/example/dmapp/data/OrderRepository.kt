@@ -704,6 +704,187 @@ class OrderRepository(
     suspend fun getOrderById(orderId: Long): Order? {
         return orderDao.findOrderById(orderId)
     }
+
+    private fun parseAddress(addressParts: List<String>): String {
+        val address = addressParts.joinToString(" ")
+            .replace("К ", "")
+            .replace("Москва, ", "")
+        
+        // Разбиваем адрес на части
+        val parts = address.split(", ").map { it.trim() }
+        if (parts.isEmpty()) return address
+
+        val result = mutableListOf<String>()
+        
+        // Обрабатываем первую часть (улица)
+        val firstPart = parts[0]
+        result.add(firstPart)
+        
+        // Обрабатываем остальные части
+        for (i in 1 until parts.size) {
+            val part = parts[i]
+            
+            when {
+                // Если это вторая часть и она содержит цифры (возможно с буквой или слешем) - это номер дома
+                i == 1 && (part.any { it.isDigit() } && (part.length <= 5 || part.contains("/"))) -> {
+                    result.add("дом $part")
+                }
+                // Если это последняя часть и она длиннее 2 символов, это квартира
+                i == parts.size - 1 && part.length > 2 -> {
+                    result.add("кв. $part")
+                }
+                // Если это одна цифра, это корпус
+                part.length == 1 && part.all { it.isDigit() } -> {
+                    result.add("корп. $part")
+                }
+                // Если это буква или буква с цифрой, это корпус
+                part.length <= 2 && part.any { it.isLetter() } -> {
+                    result.add("корп. $part")
+                }
+                // В остальных случаях добавляем как есть
+                else -> {
+                    result.add(part)
+                }
+            }
+        }
+        
+        return result.joinToString(", ")
+    }
+
+    suspend fun importOrdersNewFormat(text: String): ImportResult {
+        println("\n=== importOrdersNewFormat: Начало импорта заказов в новом формате ===")
+        println("Получен текст для импорта: ${text.take(100)}${if (text.length > 100) "..." else ""}")
+        
+        val lines = text.split("\n")
+        println("Разбор ${lines.size} строк")
+        
+        var importedCount = 0
+        var skippedCount = 0
+        var errorCount = 0
+        
+        // Получаем максимальный номер заказа
+        val maxOrderNumber = orderDao.getMaxOrderNumber() ?: 0
+        println("Текущий максимальный номер заказа: $maxOrderNumber")
+        
+        var currentOrderNumber = maxOrderNumber + 1
+        println("Начинаем импорт с номера: $currentOrderNumber")
+        
+        for (line in lines) {
+            if (line.isBlank()) continue
+            
+            try {
+                // Разбиваем строку на части
+                val parts = line.split(" ")
+                if (parts.size < 4) {
+                    println("Строка слишком короткая, пропускаем: $line")
+                    continue
+                }
+                
+                // Извлекаем данные в правильном порядке
+                // 1. Пропускаем "Москва Черёмушки" (parts[0] и parts[1])
+                // 2. Вес
+                val weight = parts[2].replace(",", ".").toDoubleOrNull() ?: 0.0
+                
+                // 3. Номер заказа
+                val externalOrderNumber = parts[3]
+                
+                // 4. Телефон клиента
+                val phone = parts[4]
+                
+                // Находим индекс начала адреса (после телефона)
+                var addressStartIndex = 5
+                
+                // Находим индекс интервала доставки
+                val deliveryIntervalIndex = parts.indexOfFirst { it.contains("_to_") }
+                if (deliveryIntervalIndex == -1) {
+                    println("Не найден интервал доставки в строке: $line")
+                    continue
+                }
+                
+                // Извлекаем адрес (все части между телефоном и интервалом доставки)
+                val addressParts = parts.subList(addressStartIndex, deliveryIntervalIndex)
+                val deliveryAddress = parseAddress(addressParts)
+                
+                // Извлекаем интервал доставки
+                val deliveryInterval = parts[deliveryIntervalIndex]
+                val (startTime, endTime) = parseDeliveryIntervalNewFormat(deliveryInterval)
+                
+                // Проверяем, не существует ли уже такой заказ
+                val existingOrder = orderDao.findDuplicateOrder(externalOrderNumber)
+                if (existingOrder != null) {
+                    println("Заказ $externalOrderNumber уже существует в основной базе, пропускаем")
+                    skippedCount++
+                    continue
+                }
+                
+                // Создаем новый заказ
+                val order = Order(
+                    orderNumber = currentOrderNumber++,
+                    externalOrderNumber = externalOrderNumber,
+                    pickupLocation = "", // Пустое поле
+                    sector = "", // Пустое поле
+                    place = "", // Пустое поле
+                    deliveryAddress = deliveryAddress,
+                    clientName = "", // Пустое поле
+                    clientPhone = phone,
+                    clientComment = null, // Пустое поле
+                    deliveryTimeStart = startTime,
+                    deliveryTimeEnd = endTime,
+                    weight = weight,
+                    volume = 0.0, // Пустое поле
+                    isPrepaid = false, // Пустое поле
+                    courierName = "", // Пустое поле
+                    courierPhone = "", // Пустое поле
+                    orderAmount = 0.0, // Пустое поле
+                    status = OrderStatus.NEW,
+                    isCompleted = false
+                )
+                
+                println("Создан новый заказ: №${order.orderNumber}, внешний номер: ${order.externalOrderNumber}")
+                
+                // Сохраняем заказ в базу данных
+                val id = orderDao.insert(order)
+                println("Заказ сохранен в базу данных с id: $id")
+                
+                importedCount++
+            } catch (e: Exception) {
+                println("Ошибка при обработке заказа: ${e.message}")
+                e.printStackTrace()
+                errorCount++
+            }
+        }
+        
+        println("Импорт завершен:")
+        println("- Импортировано заказов: $importedCount")
+        println("- Пропущено заказов: $skippedCount")
+        println("- Ошибок: $errorCount")
+        println("=== importOrdersNewFormat: Завершено ===\n")
+        
+        return ImportResult(importedCount, skippedCount, errorCount)
+    }
+
+    private fun parseDeliveryIntervalNewFormat(interval: String): Pair<LocalDateTime, LocalDateTime> {
+        val pattern = Pattern.compile("(\\d+)_to_(\\d+)")
+        val matcher = pattern.matcher(interval)
+        
+        if (matcher.find()) {
+            val startHour = matcher.group(1).toInt()
+            val endHour = matcher.group(2).toInt()
+            
+            val today = LocalDate.now()
+            val startTime = LocalTime.of(startHour, 0)
+            val endTime = LocalTime.of(endHour, 0)
+            
+            return Pair(
+                LocalDateTime.of(today, startTime),
+                LocalDateTime.of(today, endTime)
+            )
+        }
+        
+        // Если не удалось распарсить интервал, возвращаем текущее время
+        val now = LocalDateTime.now()
+        return Pair(now, now.plusHours(1))
+    }
 }
 
 data class ImportResult(

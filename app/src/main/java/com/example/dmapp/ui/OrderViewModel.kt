@@ -44,25 +44,29 @@ class OrderViewModel(
     val navigationEvent: StateFlow<NavigationEvent?> = _navigationEvent.asStateFlow()
 
     fun importOrders(text: String) {
-        println("\n=== OrderViewModel.importOrders: Начало импорта заказов ===")
         viewModelScope.launch {
             try {
-                println("Вызываем repository.importOrders")
-                val result = repository.importOrders(text)
-                println("Импорт завершен: ${result.newOrders} новых заказов, ${result.duplicates} дубликатов, ${result.errors} ошибок")
-                
-                // Проверяем, что заказы действительно добавились
-                val activeOrders = repository.activeOrders.first()
-                println("Текущее количество активных заказов: ${activeOrders.size}")
-                if (activeOrders.isNotEmpty()) {
-                    println("Первый активный заказ: №${activeOrders[0].orderNumber}, статус: ${activeOrders[0].status}")
-                }
-                
-                _importResult.value = result
-                println("=== OrderViewModel.importOrders: Завершено ===\n")
+                _isLoading.value = true
+                _importResult.value = repository.importOrders(text)
             } catch (e: Exception) {
                 println("Ошибка при импорте заказов: ${e.message}")
                 e.printStackTrace()
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun importOrdersNewFormat(text: String) {
+        viewModelScope.launch {
+            try {
+                _isLoading.value = true
+                _importResult.value = repository.importOrdersNewFormat(text)
+            } catch (e: Exception) {
+                println("Ошибка при импорте заказов в новом формате: ${e.message}")
+                e.printStackTrace()
+            } finally {
+                _isLoading.value = false
             }
         }
     }
