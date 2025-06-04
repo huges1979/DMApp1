@@ -56,10 +56,10 @@ fun OrderItem(
         OrderStatus.NEW -> Color.White
         OrderStatus.IN_PROGRESS -> Color(0xFFE8F5E9) // Light Green
         OrderStatus.COMPLETED -> Color.White // Changed from Light Gray to White
-        OrderStatus.REALIZATION -> Color(0xFFE8F5E9) // Light Green
+        OrderStatus.REALIZATION -> Color(0xFFF0F0F0) // Light Gray
         OrderStatus.READY -> Color(0xFFE8F5E9) // Light Green
         OrderStatus.SHIPPED -> Color(0xFFE8F5E9) // Light Green
-        OrderStatus.CANCELLED -> Color(0xFFE8F5E9) // Light Green
+        OrderStatus.CANCELLED -> Color(0xFFF0F0F0) // Light Gray
     }
     
     // Проверяем, есть ли фото у заказа
@@ -108,7 +108,7 @@ fun OrderItem(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
-                    
+                    Spacer(modifier = Modifier.width(8.dp))
                     // Статус заказа
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -137,7 +137,7 @@ fun OrderItem(
                             },
                             tint = when (order.status) {
                                 OrderStatus.NEW -> Color(0xFF2196F3)
-                                OrderStatus.IN_PROGRESS -> Color(0xFFFFA000)
+                                OrderStatus.IN_PROGRESS -> Color(0xFF4CAF50) // Зеленый цвет для иконки "В работе"
                                 OrderStatus.COMPLETED -> Color(0xFF4CAF50)
                                 OrderStatus.REALIZATION -> Color(0xFFFF0000)
                                 OrderStatus.READY -> Color(0xFF4CAF50)
@@ -159,7 +159,7 @@ fun OrderItem(
                             style = MaterialTheme.typography.bodyMedium,
                             color = when (order.status) {
                                 OrderStatus.NEW -> Color(0xFF2196F3)
-                                OrderStatus.IN_PROGRESS -> Color(0xFFFFA000)
+                                OrderStatus.IN_PROGRESS -> Color(0xFF4CAF50) // Зеленый цвет для статуса "В работе"
                                 OrderStatus.COMPLETED -> Color(0xFF4CAF50)
                                 OrderStatus.REALIZATION -> Color(0xFFFF0000)
                                 OrderStatus.READY -> Color(0xFF4CAF50)

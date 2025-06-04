@@ -14,6 +14,7 @@ import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.border
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -368,12 +369,15 @@ fun MapScreen(
             return true
         }
         
-        // Получаем час начала доставки заказа
+        // Получаем время начала и конца доставки заказа
         val orderStartHour = order.deliveryTimeStart.hour
+        val orderEndHour = order.deliveryTimeEnd?.hour ?: orderStartHour
         
-        // Проверяем, попадает ли заказ хотя бы в один из выбранных интервалов
+        // Проверяем, попадает ли заказ точно в один из выбранных интервалов
         return selectedTimeRanges.any { timeRange ->
-            orderStartHour in timeRange.startHour until timeRange.endHour
+            // Заказ должен начинаться не раньше начала интервала
+            // и заканчиваться не позже конца интервала
+            orderStartHour >= timeRange.startHour && orderEndHour <= timeRange.endHour
         }
     }
 
@@ -1463,12 +1467,17 @@ fun MapScreen(
                     exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(200)),
                     modifier = Modifier.align(Alignment.BottomCenter)
                 ) {
-                    val cardColor = if (currentOrder.status == OrderStatus.IN_PROGRESS) ComposeColor(0xFFB9F6CA) else ComposeColor.White
+                    val cardColor = if (currentOrder.status == OrderStatus.IN_PROGRESS) ComposeColor(0xFFE8F5E9) else ComposeColor.White
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(start = 16.dp, end = 16.dp, bottom = 32.dp)
-                            .clickable { isExpanded = true },
+                            .clickable { isExpanded = true }
+                            .border(
+                                width = if (currentOrder.status == OrderStatus.IN_PROGRESS) 3.dp else 0.dp,
+                                color = if (currentOrder.status == OrderStatus.IN_PROGRESS) ComposeColor(0xFF81C784) else ComposeColor.Transparent,
+                                shape = MaterialTheme.shapes.medium
+                            ),
                         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
                         colors = CardDefaults.cardColors(containerColor = cardColor)
                     ) {
@@ -1538,7 +1547,7 @@ fun MapScreen(
                     exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(200)),
                     modifier = Modifier.align(Alignment.BottomCenter)
                 ) {
-                    val cardColor = if (currentOrder.status == OrderStatus.IN_PROGRESS) ComposeColor(0xFFB9F6CA) else ComposeColor.White
+                    val cardColor = if (currentOrder.status == OrderStatus.IN_PROGRESS) ComposeColor(0xFFE8F5E9) else ComposeColor.White
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()

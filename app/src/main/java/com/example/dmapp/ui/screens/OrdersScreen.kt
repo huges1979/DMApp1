@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -22,6 +23,10 @@ fun OrdersScreen(
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
+
+    // Состояние для выбранного статуса
+    var selectedStatus by remember { mutableStateOf<OrderStatus?>(null) }
+    var expanded by remember { mutableStateOf(false) }
 
     // Диалог подтверждения удаления
     var orderToDelete by remember { mutableStateOf<Order?>(null) }
@@ -53,20 +58,62 @@ fun OrdersScreen(
         )
     }
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize()
-    ) {
-        items(orders) { order ->
-            OrderItem(
-                order = order,
-                onOrderClick = { onOrderClick(order) },
-                onStatusChange = { updatedOrder, newStatus ->
-                    scope.launch {
-                        orderRepository.updateOrderStatus(updatedOrder, newStatus)
+    // Фильтрация заказов по выбранному статусу
+    val filteredOrders = if (selectedStatus == null) orders else orders.filter { it.status == selectedStatus }
+
+    Column(modifier = modifier.fillMaxSize()) {
+        // Фильтр по статусу
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+            horizontalArrangement = Arrangement.Start,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Статус:", style = MaterialTheme.typography.bodyLarge)
+            Spacer(modifier = Modifier.width(8.dp))
+            Box {
+                Button(onClick = { expanded = true }) {
+                    Text(selectedStatus?.getDisplayName() ?: "Все")
+                }
+                DropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Все") },
+                        onClick = {
+                            selectedStatus = null
+                            expanded = false
+                        }
+                    )
+                    OrderStatus.values().forEach { status ->
+                        DropdownMenuItem(
+                            text = { Text(status.getDisplayName()) },
+                            onClick = {
+                                selectedStatus = status
+                                expanded = false
+                            }
+                        )
                     }
-                },
-                onDeleteOrder = { orderToDelete = it }
-            )
+                }
+            }
+        }
+        LazyColumn(
+            modifier = Modifier.weight(1f)
+        ) {
+            items(filteredOrders) { order ->
+                OrderItem(
+                    order = order,
+                    onOrderClick = { onOrderClick(order) },
+                    onStatusChange = { updatedOrder, newStatus ->
+                        scope.launch {
+                            orderRepository.updateOrderStatus(updatedOrder, newStatus)
+                        }
+                    },
+                    onDeleteOrder = { orderToDelete = it }
+                )
+            }
         }
     }
 } 

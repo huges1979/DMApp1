@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.AttachMoney
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -55,6 +56,10 @@ fun StatisticsScreen(
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     var showClearConfirmDialog by remember { mutableStateOf(false) }
     var showClearDateConfirmDialog by remember { mutableStateOf(false) }
+    var showSalaryCalculator by remember { mutableStateOf(false) }
+    var showCalendar by remember { mutableStateOf(false) }
+    var startDate by remember { mutableStateOf(LocalDate.now()) }
+    var endDate by remember { mutableStateOf(LocalDate.now()) }
     val completedOrdersForDate by viewModel.completedOrdersForDate.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val loadError by viewModel.loadError.collectAsState()
@@ -75,6 +80,20 @@ fun StatisticsScreen(
         }
     }
     
+    // Функция для расчета заработной платы за период
+    fun calculateSalaryForPeriod(start: LocalDate, end: LocalDate): Double {
+        var totalSalary = 0.0
+        var currentDate = start
+        while (!currentDate.isAfter(end)) {
+            val dayStats = statistics.getStatsForDay(currentDate)
+            if (dayStats != null) {
+                totalSalary += dayStats.completedOrders * 221.54 // Ставка за заказ
+            }
+            currentDate = currentDate.plusDays(1)
+        }
+        return totalSalary
+    }
+    
     // Загружаем заказы при изменении выбранной даты
     LaunchedEffect(selectedDate) {
         viewModel.getCompletedOrdersForDate(selectedDate)
@@ -90,6 +109,9 @@ fun StatisticsScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showSalaryCalculator = true }) {
+                        Icon(Icons.Default.AttachMoney, contentDescription = "Расчет заработной платы")
+                    }
                     IconButton(onClick = onRebuildStatistics) {
                         Icon(Icons.Default.Refresh, contentDescription = "Перестроить статистику")
                     }
@@ -100,168 +122,160 @@ fun StatisticsScreen(
             )
         }
     ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = 16.dp)
-        ) {
-            // Выбор даты
-            item {
-                // Календарная иконка для выбора даты
-                var showCalendar by remember { mutableStateOf(false) }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    IconButton(onClick = { showCalendar = true }) {
-                        Icon(Icons.Default.CalendarToday, contentDescription = "Открыть календарь")
-                    }
-                }
-                if (showCalendar) {
-                    // Кастомный календарь
-                    CalendarDialog(
-                        markedDates = statistics.dailyStats.map { it.date },
-                        onDateSelected = { date ->
-                            selectedDate = date
-                            showCalendar = false
-                        },
-                        onDismiss = { showCalendar = false }
-                    )
-                }
-            }
-            
-            // Карточки со статистикой
-            item {
-                if (dateStats != null) {
-                    // Контейнер для всех карточек с отступом
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+        Box(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .padding(horizontal = 16.dp)
+            ) {
+                // Выбор даты
+                item {
+                    // Календарная иконка для выбора даты
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
                     ) {
-                        // Карточка с заказами
-                        StatCard(
-                            title = "Выполненные заказы",
-                            value = dateStats.completedOrders.toString(),
-                            backgroundColor = Color(0xFFECE5FF),
-                            onClick = { viewModel.getCompletedOrdersForDate(selectedDate) }
-                        )
-                        
-                        Spacer(modifier = Modifier.height(12.dp))
-                        
-                        // Карточка с весом
-                        StatCard(
-                            title = "Общий вес (кг)",
-                            value = String.format("%.1f", dateStats.totalWeight),
-                            backgroundColor = Color(0xFFECE5FF)
-                        )
-                        
-                        Spacer(modifier = Modifier.height(12.dp))
-                        
-                        // Карточка с пробегом
-                        StatCard(
-                            title = "Приблизительный пробег (км)",
-                            value = String.format("%.1f", dateStats.totalDistance),
-                            backgroundColor = Color(0xFFFFE5E5)
-                        )
-                        
-                        Spacer(modifier = Modifier.height(12.dp))
-                        
-                        // Карточка с заработком
-                        StatCard(
-                            title = "Заработано",
-                            value = String.format("%.2f ₽", dateStats.completedOrders * 221.54),
-                            backgroundColor = Color(0xFFE5FFE5) // Светло-зеленый цвет
-                        )
-                    }
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 32.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Нет статистики за выбранную дату",
-                            fontSize = 18.sp,
-                            textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        IconButton(onClick = { showCalendar = true }) {
+                            Icon(Icons.Default.CalendarToday, contentDescription = "Открыть календарь")
+                        }
                     }
                 }
-            }
-            
-            // Секция списка заказов
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Список заказов за ${selectedDate.format(fullDateFormatter)}",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    
-                    if (dateStats != null && dateStats.completedOrders > 0) {
-                        IconButton(
-                            onClick = { showClearDateConfirmDialog = true }
+                
+                // Карточки со статистикой
+                item {
+                    if (dateStats != null) {
+                        // Контейнер для всех карточек с отступом
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Icon(
-                                Icons.Default.Delete,
-                                contentDescription = "Очистить статистику за дату",
-                                tint = MaterialTheme.colorScheme.error
+                            // Карточка с заказами
+                            StatCard(
+                                title = "Выполненные заказы",
+                                value = dateStats.completedOrders.toString(),
+                                backgroundColor = Color(0xFFECE5FF),
+                                onClick = { viewModel.getCompletedOrdersForDate(selectedDate) }
+                            )
+                            
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            // Карточка с весом
+                            StatCard(
+                                title = "Общий вес (кг)",
+                                value = String.format("%.1f", dateStats.totalWeight),
+                                backgroundColor = Color(0xFFECE5FF)
+                            )
+                            
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            // Карточка с пробегом
+                            StatCard(
+                                title = "Приблизительный пробег (км)",
+                                value = String.format("%.1f", dateStats.totalDistance),
+                                backgroundColor = Color(0xFFFFE5E5)
+                            )
+                            
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            // Карточка с заработком
+                            StatCard(
+                                title = "Заработано",
+                                value = String.format("%.2f ₽", dateStats.completedOrders * 221.54),
+                                backgroundColor = Color(0xFFE5FFE5) // Светло-зеленый цвет
+                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Нет статистики за выбранную дату",
+                                fontSize = 18.sp,
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
                 }
                 
-                println("\n=== StatisticsScreen: Отображение списка заказов ===")
-                println("Статистика за день: ${dateStats?.completedOrders}, Заказов в списке: ${completedOrdersForDate.size}")
-                println("Выбранная дата: ${selectedDate.format(fullDateFormatter)}")
-                
-                if (dateStats != null && dateStats.completedOrders > 0) {
-                    if (completedOrdersForDate.isNotEmpty()) {
-                        println("Отображаем ${completedOrdersForDate.size} заказов")
-                        Column(modifier = Modifier.padding(bottom = 16.dp)) {
-                            completedOrdersForDate.forEach { order ->
-                                println("Отображаем заказ №${order.orderNumber}, статус: ${order.status}")
-                                OrderItem(
-                                    order = order,
-                                    onOrderClick = { onOrderClick(order) },
-                                    onStatusChange = { updatedOrder, newStatus ->
-                                        scope.launch {
-                                            orderRepository.updateOrderStatus(updatedOrder, newStatus)
-                                        }
-                                    },
-                                    onDeleteOrder = { orderToDelete = it },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    onStatusUpdate = {
-                                        scope.launch {
-                                            val newStatus = if (order.status == OrderStatus.COMPLETED) {
-                                                OrderStatus.NEW
-                                            } else {
-                                                OrderStatus.COMPLETED
-                                            }
-                                            orderRepository.updateOrderStatus(order, newStatus)
-                                        }
-                                    },
-                                    onPhotoViewClick = { photoUri ->
-                                        // Сохраняем URI фото и переходим на экран просмотра
-                                        navController.currentBackStackEntry?.savedStateHandle?.set("photo_uri", photoUri.toString())
-                                        navController.navigate("photo_viewer")
-                                    }
+                // Секция списка заказов
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Список заказов за ${selectedDate.format(fullDateFormatter)}",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        
+                        if (dateStats != null && dateStats.completedOrders > 0) {
+                            IconButton(
+                                onClick = { showClearDateConfirmDialog = true }
+                            ) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Очистить статистику за дату",
+                                    tint = MaterialTheme.colorScheme.error
                                 )
-                                Spacer(modifier = Modifier.height(8.dp))
                             }
                         }
+                    }
+                    
+                    if (dateStats != null && dateStats.completedOrders > 0) {
+                        if (completedOrdersForDate.isNotEmpty()) {
+                            Column(modifier = Modifier.padding(bottom = 16.dp)) {
+                                completedOrdersForDate.forEach { order ->
+                                    OrderItem(
+                                        order = order,
+                                        onOrderClick = { onOrderClick(order) },
+                                        onStatusChange = { updatedOrder, newStatus ->
+                                            scope.launch {
+                                                orderRepository.updateOrderStatus(updatedOrder, newStatus)
+                                            }
+                                        },
+                                        onDeleteOrder = { orderToDelete = it },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        onStatusUpdate = {
+                                            scope.launch {
+                                                val newStatus = if (order.status == OrderStatus.COMPLETED) {
+                                                    OrderStatus.NEW
+                                                } else {
+                                                    OrderStatus.COMPLETED
+                                                }
+                                                orderRepository.updateOrderStatus(order, newStatus)
+                                            }
+                                        },
+                                        onPhotoViewClick = { photoUri ->
+                                            // Сохраняем URI фото и переходим на экран просмотра
+                                            navController.currentBackStackEntry?.savedStateHandle?.set("photo_uri", photoUri.toString())
+                                            navController.navigate("photo_viewer")
+                                        }
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                }
+                            }
+                        } else {
+                            Text(
+                                text = "Нет данных о заказах за выбранную дату",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 24.dp),
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     } else {
-                        println("Нет заказов для отображения, хотя статистика показывает ${dateStats.completedOrders} заказов")
                         Text(
                             text = "Нет данных о заказах за выбранную дату",
                             modifier = Modifier
@@ -271,96 +285,48 @@ fun StatisticsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                } else {
-                    println("Нет статистики за выбранную дату")
-                    Text(
-                        text = "Нет данных о заказах за выбранную дату",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 24.dp),
-                        textAlign = TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                println("=== StatisticsScreen: Завершено отображение списка заказов ===\n")
-            }
-        }
-    }
-    
-    // Диалог подтверждения очистки статистики
-    if (showClearConfirmDialog) {
-        AlertDialog(
-            onDismissRequest = { showClearConfirmDialog = false },
-            title = { Text("Очистка статистики") },
-            text = { Text("Вы действительно хотите очистить всю статистику? Это действие нельзя отменить.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        onClearStatistics()
-                        showClearConfirmDialog = false
-                    }
-                ) {
-                    Text("Очистить")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showClearConfirmDialog = false }) {
-                    Text("Отмена")
                 }
             }
-        )
-    }
-    
-    // Диалог подтверждения очистки статистики за дату
-    if (showClearDateConfirmDialog) {
-        AlertDialog(
-            onDismissRequest = { showClearDateConfirmDialog = false },
-            title = { Text("Очистка статистики") },
-            text = { Text("Вы действительно хотите очистить статистику за ${selectedDate.format(fullDateFormatter)}? Это действие нельзя отменить.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.clearStatisticsForDate(selectedDate)
-                        showClearDateConfirmDialog = false
-                    }
-                ) {
-                    Text("Очистить")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showClearDateConfirmDialog = false }) {
-                    Text("Отмена")
-                }
-            }
-        )
-    }
 
-    // Диалог подтверждения удаления
-    if (orderToDelete != null) {
-        AlertDialog(
-            onDismissRequest = { orderToDelete = null },
-            title = { Text("Удаление заказа") },
-            text = { Text("Вы уверены, что хотите удалить заказ №${orderToDelete?.orderNumber}? Это действие нельзя отменить.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        orderToDelete?.let { order ->
-                            scope.launch {
-                                orderRepository.deleteOrder(order.id)
-                                orderToDelete = null
-                            }
-                        }
-                    }
-                ) {
-                    Text("Удалить", color = Color.Red)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { orderToDelete = null }) {
-                    Text("Отмена")
-                }
+            // Календарь
+            if (showCalendar) {
+                CalendarDialog(
+                    markedDates = statistics.dailyStats.map { it.date },
+                    onDateSelected = { date ->
+                        selectedDate = date
+                        showCalendar = false
+                    },
+                    onDismiss = { showCalendar = false }
+                )
             }
-        )
+
+            // Диалоги
+            StatisticsDialogs(
+                showSalaryCalculator = showSalaryCalculator,
+                onDismissSalaryCalculator = { showSalaryCalculator = false },
+                startDate = startDate,
+                endDate = endDate,
+                onStartDateSelected = { startDate = it },
+                onEndDateSelected = { endDate = it },
+                calculateSalaryForPeriod = ::calculateSalaryForPeriod,
+                showClearConfirmDialog = showClearConfirmDialog,
+                onDismissClearConfirm = { showClearConfirmDialog = false },
+                onClearStatistics = onClearStatistics,
+                showClearDateConfirmDialog = showClearDateConfirmDialog,
+                onDismissClearDateConfirm = { showClearDateConfirmDialog = false },
+                selectedDate = selectedDate,
+                onClearDateStatistics = { viewModel.clearStatisticsForDate(selectedDate) },
+                orderToDelete = orderToDelete,
+                onDismissDeleteOrder = { orderToDelete = null },
+                onDeleteOrder = { order ->
+                    scope.launch {
+                        orderRepository.deleteOrder(order.id)
+                        orderToDelete = null
+                    }
+                },
+                fullDateFormatter = fullDateFormatter
+            )
+        }
     }
 }
 

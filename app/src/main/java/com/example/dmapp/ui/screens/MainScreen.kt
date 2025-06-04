@@ -32,6 +32,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import com.example.dmapp.data.OrderRepository
+import androidx.compose.ui.Alignment
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
@@ -70,6 +71,12 @@ fun MainScreen(
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     
+    // Состояния для фильтра по статусу
+    var selectedActiveStatus by remember { mutableStateOf<OrderStatus?>(null) }
+    var expandedActive by remember { mutableStateOf(false) }
+    var selectedCompletedStatus by remember { mutableStateOf<OrderStatus?>(null) }
+    var expandedCompleted by remember { mutableStateOf(false) }
+    
     // Фильтруем заказы на основе поискового запроса
     val filteredActiveOrders = remember(activeOrders, searchQuery) {
         if (searchQuery.isEmpty()) {
@@ -89,6 +96,14 @@ fun MainScreen(
                 order.containsSearchQuery(searchQuery)
             }
         }
+    }
+
+    // Фильтрация по статусу + поиск
+    val filteredActiveOrdersByStatus = remember(filteredActiveOrders, selectedActiveStatus) {
+        if (selectedActiveStatus == null) filteredActiveOrders else filteredActiveOrders.filter { it.status == selectedActiveStatus }
+    }
+    val filteredCompletedOrdersByStatus = remember(filteredCompletedOrders, selectedCompletedStatus) {
+        if (selectedCompletedStatus == null) filteredCompletedOrders else filteredCompletedOrders.filter { it.status == selectedCompletedStatus }
     }
 
     val scope = rememberCoroutineScope()
@@ -235,13 +250,13 @@ fun MainScreen(
                         }
                     }
                 )
+            },
+            floatingActionButton = {
+                // ... existing code ...
             }
-        ) { paddingValues ->
-            Column(modifier = Modifier.padding(paddingValues)) {
-                TabRow(
-                    selectedTabIndex = selectedTabIndex,
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                ) {
+        ) { innerPadding ->
+            Column(modifier = Modifier.padding(innerPadding)) {
+                TabRow(selectedTabIndex = selectedTabIndex) {
                     tabs.forEachIndexed { index, title ->
                         Tab(
                             selected = selectedTabIndex == index,
@@ -250,11 +265,84 @@ fun MainScreen(
                         )
                     }
                 }
-
+                // Фильтр по статусу для активных/выполненных
+                if (selectedTabIndex == 0) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Статус:", style = MaterialTheme.typography.bodyLarge)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Box {
+                            Button(onClick = { expandedActive = true }) {
+                                Text(selectedActiveStatus?.getDisplayName() ?: "Все")
+                            }
+                            DropdownMenu(
+                                expanded = expandedActive,
+                                onDismissRequest = { expandedActive = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Все") },
+                                    onClick = {
+                                        selectedActiveStatus = null
+                                        expandedActive = false
+                                    }
+                                )
+                                OrderStatus.values().forEach { status ->
+                                    DropdownMenuItem(
+                                        text = { Text(status.getDisplayName()) },
+                                        onClick = {
+                                            selectedActiveStatus = status
+                                            expandedActive = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Статус:", style = MaterialTheme.typography.bodyLarge)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Box {
+                            Button(onClick = { expandedCompleted = true }) {
+                                Text(selectedCompletedStatus?.getDisplayName() ?: "Все")
+                            }
+                            DropdownMenu(
+                                expanded = expandedCompleted,
+                                onDismissRequest = { expandedCompleted = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Все") },
+                                    onClick = {
+                                        selectedCompletedStatus = null
+                                        expandedCompleted = false
+                                    }
+                                )
+                                OrderStatus.values().forEach { status ->
+                                    DropdownMenuItem(
+                                        text = { Text(status.getDisplayName()) },
+                                        onClick = {
+                                            selectedCompletedStatus = status
+                                            expandedCompleted = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
                 when (selectedTabIndex) {
                     0 -> {
                         LazyColumn {
-                            items(filteredActiveOrders) { order ->
+                            items(filteredActiveOrdersByStatus) { order ->
                                 OrderItem(
                                     order = order,
                                     onOrderClick = { onOrderClick(order) },
@@ -270,7 +358,7 @@ fun MainScreen(
                     }
                     1 -> {
                         LazyColumn {
-                            items(filteredCompletedOrders) { order ->
+                            items(filteredCompletedOrdersByStatus) { order ->
                                 OrderItem(
                                     order = order,
                                     onOrderClick = { onOrderClick(order) },
@@ -283,7 +371,7 @@ fun MainScreen(
                                 )
                             }
                             item {
-                                if (filteredCompletedOrders.isNotEmpty()) {
+                                if (filteredCompletedOrdersByStatus.isNotEmpty()) {
                                     TextButton(
                                         onClick = onClearCompleted,
                                         modifier = Modifier

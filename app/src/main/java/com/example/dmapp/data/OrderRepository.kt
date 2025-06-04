@@ -183,14 +183,14 @@ class OrderRepository(
                         // Проверяем, не существует ли уже такой заказ
                         val existingOrder = orderDao.findDuplicateOrder(externalOrderNumber)
                         if (existingOrder != null) {
-                            println("Заказ $externalOrderNumber уже существует в основной базе, пропускаем")
+                            println("Заказ $externalOrderNumber уже существует в базе, пропускаем")
                             skippedCount++
                             currentOrder.clear()
                             isProcessingOrder = false
                             continue
                         }
                         
-                        println("Заказ $externalOrderNumber не найден в основной базе, создаем новый")
+                        println("Заказ $externalOrderNumber не найден в базе, создаем новый")
                         
                         // Парсим время доставки
                         val deliveryInterval = currentOrder["deliveryInterval"] ?: "с 09:00 до 18:00"
@@ -472,30 +472,38 @@ class OrderRepository(
     }
 
     suspend fun updateOrderStatus(order: Order, newStatus: OrderStatus) {
-        println("OrderRepository.updateOrderStatus: Обновление статуса заказа ${order.orderNumber} на $newStatus")
-        println("OrderRepository.updateOrderStatus: Текущий статус: ${order.status}, isCompleted: ${order.isCompleted}")
+        println("\n=== updateOrderStatus: Начало обновления статуса заказа ===")
+        println("Заказ №${order.orderNumber}, внешний №${order.externalOrderNumber}")
+        println("Текущий статус: ${order.status}, isCompleted: ${order.isCompleted}")
+        println("Новый статус: $newStatus")
         
         val updatedOrder = order.copy(
             status = newStatus,
             isCompleted = newStatus == OrderStatus.COMPLETED
         )
-        println("OrderRepository.updateOrderStatus: Новый статус: ${updatedOrder.status}, isCompleted: ${updatedOrder.isCompleted}")
+        println("Подготовленный заказ для обновления:")
+        println("- Статус: ${updatedOrder.status}")
+        println("- isCompleted: ${updatedOrder.isCompleted}")
         
         // Сначала обновляем статус в основной базе данных
         orderDao.update(updatedOrder)
-        println("OrderRepository.updateOrderStatus: Заказ обновлен в базе данных")
+        println("Заказ обновлен в базе данных")
         
         // Проверяем, что заказ действительно обновился
         val checkOrder = orderDao.findOrderById(order.id)
-        println("OrderRepository.updateOrderStatus: Проверка после обновления - статус: ${checkOrder?.status}, isCompleted: ${checkOrder?.isCompleted}")
+        println("Проверка после обновления:")
+        println("- Статус: ${checkOrder?.status}")
+        println("- isCompleted: ${checkOrder?.isCompleted}")
         
         // Если заказ помечен как выполненный, сохраняем его в статистику
         if (newStatus == OrderStatus.COMPLETED && checkOrder != null) {
-            println("OrderRepository.updateOrderStatus: Заказ помечен как выполненный, сохраняем в статистику")
+            println("Заказ помечен как выполненный, сохраняем в статистику")
             val statisticsRepository = StatisticsRepository(context)
             statisticsRepository.saveOrderToStatistics(checkOrder)
-            println("OrderRepository.updateOrderStatus: Заказ сохранен в статистику")
+            println("Заказ сохранен в статистику")
         }
+        
+        println("=== updateOrderStatus: Завершено ===\n")
     }
 
     suspend fun deleteCompletedOrders(): Int {
@@ -776,6 +784,10 @@ class OrderRepository(
             try {
                 // Разбиваем строку на части
                 val parts = line.split(" ")
+                println("\n=== Обработка строки заказа ===")
+                println("Строка целиком: '$line'")
+                println("Разбитая строка на части: ${parts.joinToString(" | ")}")
+                
                 if (parts.size < 4) {
                     println("Строка слишком короткая, пропускаем: $line")
                     continue
@@ -788,51 +800,82 @@ class OrderRepository(
                 
                 // 4. Вес (был в parts[5])
                 val weight = parts[3].replace(",", ".").toDoubleOrNull() ?: 0.0
+                println("Вес заказа: $weight")
                 
                 // 5. Номер заказа (был в parts[3])
                 val externalOrderNumber = parts[4]
+                println("Внешний номер заказа: $externalOrderNumber")
                 
                 // 6. Телефон клиента (был в parts[4])
                 val phone = parts[5]
+                println("Телефон клиента: $phone")
                 
                 // Находим индекс начала адреса (после телефона)
                 var addressStartIndex = 6
                 
                 // Находим индекс интервала доставки
                 val deliveryIntervalIndex = parts.indexOfFirst { it.contains("_to_") }
-                if (deliveryIntervalIndex == -1) {
-                    println("Не найден интервал доставки в строке: $line")
-                    continue
-                }
+                println("Индекс интервала доставки: $deliveryIntervalIndex")
 
-                // Извлекаем статус заказа (последнее слово в строке)
-                val statusStr = parts.last()
-                val orderStatus = when (statusStr) {
-                    "Реализация" -> OrderStatus.REALIZATION
-                    "Готов" -> OrderStatus.READY
-                    "Новый" -> OrderStatus.NEW
-                    "Отгружен" -> OrderStatus.SHIPPED
-                    "Отменен" -> OrderStatus.CANCELLED
-                    "Отмена" -> OrderStatus.CANCELLED
+                // Извлекаем статус из всей строки, добавляя пробел после интервала
+                val statusStr = line.substringAfter("_to_ ").trim()
+                println("\n=== Обработка статуса заказа ===")
+                println("Строка целиком: '$line'")
+                println("Все части строки: ${parts.joinToString(" | ")}")
+                println("Полный статус: '$statusStr'")
+                println("Длина статуса: ${statusStr.length}")
+                println("Коды символов статуса: ${statusStr.map { it.code }}")
+
+                val orderStatus = when {
+                    statusStr.contains("Готов к выдаче") -> {
+                        println("Найден статус 'Готов к выдаче', устанавливаем OrderStatus.READY")
+                        OrderStatus.READY
+                    }
+                    statusStr.contains("Реализация") -> {
+                        println("Найден статус 'Реализация', устанавливаем OrderStatus.REALIZATION")
+                        OrderStatus.REALIZATION
+                    }
+                    statusStr.contains("Готов") -> {
+                        println("Найден статус 'Готов', устанавливаем OrderStatus.READY")
+                        OrderStatus.READY
+                    }
+                    statusStr.contains("Новый") -> {
+                        println("Найден статус 'Новый', устанавливаем OrderStatus.NEW")
+                        OrderStatus.NEW
+                    }
+                    statusStr.contains("Отгружен") -> {
+                        println("Найден статус 'Отгружен', устанавливаем OrderStatus.SHIPPED")
+                        OrderStatus.SHIPPED
+                    }
+                    statusStr.contains("Отменен") || statusStr.contains("Отмена") -> {
+                        println("Найден статус 'Отменен', устанавливаем OrderStatus.CANCELLED")
+                        OrderStatus.CANCELLED
+                    }
                     else -> {
-                        println("Неизвестный статус: $statusStr, используем статус 'Новый'")
+                        println("Неизвестный статус: '$statusStr', используем статус 'Новый'")
                         OrderStatus.NEW
                     }
                 }
-                println("Определен статус заказа: $statusStr -> $orderStatus")
+                println("Итоговый статус заказа: $orderStatus")
+                println("=== Конец обработки статуса ===\n")
                 
                 // Извлекаем адрес (все части между телефоном и интервалом доставки)
                 val addressParts = parts.subList(addressStartIndex, deliveryIntervalIndex)
                 val deliveryAddress = parseAddress(addressParts)
+                println("Адрес доставки: $deliveryAddress")
                 
                 // Извлекаем интервал доставки
                 val deliveryInterval = parts[deliveryIntervalIndex]
                 val (startTime, endTime) = parseDeliveryIntervalNewFormat(deliveryInterval)
+                println("Интервал доставки: $deliveryInterval (с $startTime до $endTime)")
                 
                 // Проверяем, существует ли уже такой заказ
                 val existingOrder = orderDao.findDuplicateOrder(externalOrderNumber)
                 if (existingOrder != null) {
+                    println("\n=== Обновление существующего заказа ===")
                     println("Найден существующий заказ $externalOrderNumber")
+                    println("Текущий статус: ${existingOrder.status}")
+                    println("Новый статус: $orderStatus")
                     
                     // Если статус изменился, обновляем заказ
                     if (existingOrder.status != orderStatus) {
@@ -848,6 +891,7 @@ class OrderRepository(
                         println("Статус заказа не изменился, пропускаем")
                         skippedCount++
                     }
+                    println("=== Конец обновления заказа ===\n")
                     continue
                 }
                 
@@ -874,11 +918,16 @@ class OrderRepository(
                     isCompleted = orderStatus == OrderStatus.COMPLETED
                 )
                 
-                println("Создан новый заказ: №${order.orderNumber}, внешний номер: ${order.externalOrderNumber}, статус: ${order.status}")
+                println("\n=== Создание нового заказа ===")
+                println("Номер заказа: ${order.orderNumber}")
+                println("Внешний номер: ${order.externalOrderNumber}")
+                println("Статус: ${order.status}")
+                println("isCompleted: ${order.isCompleted}")
                 
                 // Сохраняем заказ в базу данных
                 val id = orderDao.insert(order)
                 println("Заказ сохранен в базу данных с id: $id")
+                println("=== Конец создания заказа ===\n")
                 
                 importedCount++
             } catch (e: Exception) {
