@@ -7,4 +7,13 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    
+    <!-- Статусы заказов -->
+    <color name="status_new">#2196F3</color>
+    <color name="status_in_progress">#FFA000</color>
+    <color name="status_completed">#4CAF50</color>
+    <color name="status_realization">#FF0000</color>
+    <color name="status_ready">#4CAF50</color>
+    <color name="status_shipped">#2196F3</color>
+    <color name="status_cancelled">#F44336</color>
 </resources>

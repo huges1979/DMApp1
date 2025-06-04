@@ -116,7 +116,8 @@ class MainActivity : ComponentActivity() {
                             onStatisticsClick = {
                                 navController.navigate("statistics")
                             },
-                            viewModel = viewModel
+                            viewModel = viewModel,
+                            orderRepository = orderRepository
                         )
 
                         if (showImportDialog) {
@@ -188,7 +189,8 @@ class MainActivity : ComponentActivity() {
                                 navController.navigate("order_detail")
                             },
                             viewModel = viewModel,
-                            navController = navController
+                            navController = navController,
+                            orderRepository = orderRepository
                         )
                     }
                     

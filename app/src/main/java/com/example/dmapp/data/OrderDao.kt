@@ -97,4 +97,7 @@ interface OrderDao {
 
     @Query("UPDATE orders SET photoDateTime = :photoDateTime WHERE id = :orderId")
     suspend fun updateOrderPhotoDateTimeInternal(orderId: Long, photoDateTime: LocalDateTime?)
+
+    @Query("DELETE FROM orders WHERE id = :orderId")
+    suspend fun deleteOrderById(orderId: Long)
 } 

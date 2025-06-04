@@ -9,8 +9,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.example.dmapp.data.Order
+import com.example.dmapp.data.OrderRepository
+import kotlinx.coroutines.launch
 
 @Composable
 fun OrdersList(
@@ -20,8 +23,40 @@ fun OrdersList(
     activeOrdersCount: Int,
     completedOrdersCount: Int,
     onOrderClick: (Order) -> Unit,
-    onClearCompleted: () -> Unit
+    onClearCompleted: () -> Unit,
+    orderRepository: OrderRepository
 ) {
+    val scope = rememberCoroutineScope()
+    var orderToDelete by remember { mutableStateOf<Order?>(null) }
+
+    // Диалог подтверждения удаления
+    if (orderToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { orderToDelete = null },
+            title = { Text("Удаление заказа") },
+            text = { Text("Вы уверены, что хотите удалить заказ №${orderToDelete?.orderNumber}? Это действие нельзя отменить.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        orderToDelete?.let { order ->
+                            scope.launch {
+                                orderRepository.deleteOrder(order.id)
+                                orderToDelete = null
+                            }
+                        }
+                    }
+                ) {
+                    Text("Удалить", color = Color.Red)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { orderToDelete = null }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
+
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(vertical = 8.dp)
@@ -38,7 +73,13 @@ fun OrdersList(
         items(activeOrders) { order ->
             OrderItem(
                 order = order,
-                onOrderClick = { onOrderClick(order) }
+                onOrderClick = { onOrderClick(order) },
+                onStatusChange = { updatedOrder, newStatus ->
+                    scope.launch {
+                        orderRepository.updateOrderStatus(updatedOrder, newStatus)
+                    }
+                },
+                onDeleteOrder = { orderToDelete = it }
             )
         }
         
@@ -65,7 +106,13 @@ fun OrdersList(
             items(completedOrders) { order ->
                 OrderItem(
                     order = order,
-                    onOrderClick = { onOrderClick(order) }
+                    onOrderClick = { onOrderClick(order) },
+                    onStatusChange = { updatedOrder, newStatus ->
+                        scope.launch {
+                            orderRepository.updateOrderStatus(updatedOrder, newStatus)
+                        }
+                    },
+                    onDeleteOrder = { orderToDelete = it }
                 )
             }
         }

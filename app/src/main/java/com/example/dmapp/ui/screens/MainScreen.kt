@@ -19,6 +19,7 @@ import com.example.dmapp.ui.components.OrderItem
 import com.example.dmapp.ui.OrderViewModel
 import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.graphics.Color
+import kotlinx.coroutines.launch
 
 // Добавляем импорты для функционала поиска
 import androidx.compose.material.icons.filled.Search
@@ -30,6 +31,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
+import com.example.dmapp.data.OrderRepository
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
@@ -47,7 +49,8 @@ fun MainScreen(
     onDeleteResultDismiss: () -> Unit,
     onStatusUpdate: ((Order, OrderStatus) -> Unit)? = null,
     onStatisticsClick: () -> Unit,
-    viewModel: OrderViewModel
+    viewModel: OrderViewModel,
+    orderRepository: OrderRepository
 ) {
     println("\n=== MainScreen: Обновление UI ===")
     println("Активных заказов: ${activeOrders.size}, счетчик: $activeOrdersCount")
@@ -86,6 +89,37 @@ fun MainScreen(
                 order.containsSearchQuery(searchQuery)
             }
         }
+    }
+
+    val scope = rememberCoroutineScope()
+    var orderToDelete by remember { mutableStateOf<Order?>(null) }
+
+    // Диалог подтверждения удаления
+    if (orderToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { orderToDelete = null },
+            title = { Text("Удаление заказа") },
+            text = { Text("Вы уверены, что хотите удалить заказ №${orderToDelete?.orderNumber}? Это действие нельзя отменить.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        orderToDelete?.let { order ->
+                            scope.launch {
+                                orderRepository.deleteOrder(order.id)
+                                orderToDelete = null
+                            }
+                        }
+                    }
+                ) {
+                    Text("Удалить", color = Color.Red)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { orderToDelete = null }) {
+                    Text("Отмена")
+                }
+            }
+        )
     }
 
     if (showMap) {
@@ -224,15 +258,12 @@ fun MainScreen(
                                 OrderItem(
                                     order = order,
                                     onOrderClick = { onOrderClick(order) },
-                                    // Кнопка для быстрого изменения статуса
-                                    onStatusUpdate = {
-                                        val newStatus = if (order.status == OrderStatus.COMPLETED) {
-                                            OrderStatus.NEW
-                                        } else {
-                                            OrderStatus.COMPLETED
+                                    onStatusChange = { updatedOrder, newStatus ->
+                                        scope.launch {
+                                            orderRepository.updateOrderStatus(updatedOrder, newStatus)
                                         }
-                                        viewModel.updateOrderStatus(order, newStatus)
-                                    }
+                                    },
+                                    onDeleteOrder = { orderToDelete = it }
                                 )
                             }
                         }
@@ -242,7 +273,13 @@ fun MainScreen(
                             items(filteredCompletedOrders) { order ->
                                 OrderItem(
                                     order = order,
-                                    onOrderClick = { onOrderClick(order) }
+                                    onOrderClick = { onOrderClick(order) },
+                                    onStatusChange = { updatedOrder, newStatus ->
+                                        scope.launch {
+                                            orderRepository.updateOrderStatus(updatedOrder, newStatus)
+                                        }
+                                    },
+                                    onDeleteOrder = { orderToDelete = it }
                                 )
                             }
                             item {

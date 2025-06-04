@@ -8,8 +8,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.dmapp.data.Order
 import com.example.dmapp.data.OrderStatus
 import com.example.dmapp.ui.components.OrderDetailsContent
@@ -37,7 +42,30 @@ fun OrderDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Заказ №${currentOrder.orderNumber}") },
+                title = { 
+                    Text(
+                        text = buildAnnotatedString {
+                            append("${currentOrder.orderNumber} Заказ ")
+                            val externalNumber = currentOrder.externalOrderNumber
+                            if (externalNumber.length >= 4) {
+                                val mainPart = externalNumber.substring(0, externalNumber.length - 4)
+                                val lastFourDigits = externalNumber.substring(externalNumber.length - 4)
+                                append(mainPart)
+                                withStyle(style = SpanStyle(
+                                    color = Color(0xFF03A9F4), // Light Blue
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )) {
+                                    append(lastFourDigits)
+                                }
+                            } else {
+                                append(externalNumber)
+                            }
+                        },
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Назад")

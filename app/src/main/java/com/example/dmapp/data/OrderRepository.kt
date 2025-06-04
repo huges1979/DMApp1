@@ -759,6 +759,7 @@ class OrderRepository(
         println("Разбор ${lines.size} строк")
         
         var importedCount = 0
+        var updatedCount = 0
         var skippedCount = 0
         var errorCount = 0
         
@@ -781,18 +782,21 @@ class OrderRepository(
                 }
                 
                 // Извлекаем данные в правильном порядке
-                // 1. Пропускаем "Москва Черёмушки" (parts[0] и parts[1])
-                // 2. Вес
-                val weight = parts[2].replace(",", ".").toDoubleOrNull() ?: 0.0
+                // 1. Пропускаем "М" (parts[0])
+                // 2. Пропускаем "Москва" (parts[1])
+                // 3. Пропускаем "Черёмушки" (parts[2])
                 
-                // 3. Номер заказа
-                val externalOrderNumber = parts[3]
+                // 4. Вес (был в parts[5])
+                val weight = parts[3].replace(",", ".").toDoubleOrNull() ?: 0.0
                 
-                // 4. Телефон клиента
-                val phone = parts[4]
+                // 5. Номер заказа (был в parts[3])
+                val externalOrderNumber = parts[4]
+                
+                // 6. Телефон клиента (был в parts[4])
+                val phone = parts[5]
                 
                 // Находим индекс начала адреса (после телефона)
-                var addressStartIndex = 5
+                var addressStartIndex = 6
                 
                 // Находим индекс интервала доставки
                 val deliveryIntervalIndex = parts.indexOfFirst { it.contains("_to_") }
@@ -800,6 +804,22 @@ class OrderRepository(
                     println("Не найден интервал доставки в строке: $line")
                     continue
                 }
+
+                // Извлекаем статус заказа (последнее слово в строке)
+                val statusStr = parts.last()
+                val orderStatus = when (statusStr) {
+                    "Реализация" -> OrderStatus.REALIZATION
+                    "Готов" -> OrderStatus.READY
+                    "Новый" -> OrderStatus.NEW
+                    "Отгружен" -> OrderStatus.SHIPPED
+                    "Отменен" -> OrderStatus.CANCELLED
+                    "Отмена" -> OrderStatus.CANCELLED
+                    else -> {
+                        println("Неизвестный статус: $statusStr, используем статус 'Новый'")
+                        OrderStatus.NEW
+                    }
+                }
+                println("Определен статус заказа: $statusStr -> $orderStatus")
                 
                 // Извлекаем адрес (все части между телефоном и интервалом доставки)
                 val addressParts = parts.subList(addressStartIndex, deliveryIntervalIndex)
@@ -809,11 +829,25 @@ class OrderRepository(
                 val deliveryInterval = parts[deliveryIntervalIndex]
                 val (startTime, endTime) = parseDeliveryIntervalNewFormat(deliveryInterval)
                 
-                // Проверяем, не существует ли уже такой заказ
+                // Проверяем, существует ли уже такой заказ
                 val existingOrder = orderDao.findDuplicateOrder(externalOrderNumber)
                 if (existingOrder != null) {
-                    println("Заказ $externalOrderNumber уже существует в основной базе, пропускаем")
-                    skippedCount++
+                    println("Найден существующий заказ $externalOrderNumber")
+                    
+                    // Если статус изменился, обновляем заказ
+                    if (existingOrder.status != orderStatus) {
+                        println("Статус заказа изменился с ${existingOrder.status} на $orderStatus")
+                        val updatedOrder = existingOrder.copy(
+                            status = orderStatus,
+                            isCompleted = orderStatus == OrderStatus.COMPLETED
+                        )
+                        orderDao.update(updatedOrder)
+                        println("Заказ обновлен с новым статусом")
+                        updatedCount++
+                    } else {
+                        println("Статус заказа не изменился, пропускаем")
+                        skippedCount++
+                    }
                     continue
                 }
                 
@@ -836,11 +870,11 @@ class OrderRepository(
                     courierName = "", // Пустое поле
                     courierPhone = "", // Пустое поле
                     orderAmount = 0.0, // Пустое поле
-                    status = OrderStatus.NEW,
-                    isCompleted = false
+                    status = orderStatus,
+                    isCompleted = orderStatus == OrderStatus.COMPLETED
                 )
                 
-                println("Создан новый заказ: №${order.orderNumber}, внешний номер: ${order.externalOrderNumber}")
+                println("Создан новый заказ: №${order.orderNumber}, внешний номер: ${order.externalOrderNumber}, статус: ${order.status}")
                 
                 // Сохраняем заказ в базу данных
                 val id = orderDao.insert(order)
@@ -855,12 +889,13 @@ class OrderRepository(
         }
         
         println("Импорт завершен:")
-        println("- Импортировано заказов: $importedCount")
+        println("- Импортировано новых заказов: $importedCount")
+        println("- Обновлено существующих заказов: $updatedCount")
         println("- Пропущено заказов: $skippedCount")
         println("- Ошибок: $errorCount")
         println("=== importOrdersNewFormat: Завершено ===\n")
         
-        return ImportResult(importedCount, skippedCount, errorCount)
+        return ImportResult(importedCount + updatedCount, skippedCount, errorCount)
     }
 
     private fun parseDeliveryIntervalNewFormat(interval: String): Pair<LocalDateTime, LocalDateTime> {
@@ -884,6 +919,12 @@ class OrderRepository(
         // Если не удалось распарсить интервал, возвращаем текущее время
         val now = LocalDateTime.now()
         return Pair(now, now.plusHours(1))
+    }
+
+    suspend fun deleteOrder(orderId: Long) {
+        println("OrderRepository.deleteOrder: Удаление заказа с id: $orderId")
+        orderDao.deleteOrderById(orderId)
+        println("OrderRepository.deleteOrder: Заказ успешно удален")
     }
 }
 

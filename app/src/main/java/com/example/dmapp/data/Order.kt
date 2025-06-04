@@ -5,6 +5,7 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import kotlinx.parcelize.Parcelize
 import java.time.LocalDateTime
+import com.example.dmapp.R
 
 @Parcelize
 @Entity(tableName = "orders")
@@ -41,5 +42,45 @@ data class Order(
 enum class OrderStatus {
     NEW,
     IN_PROGRESS,
-    COMPLETED
+    COMPLETED,
+    REALIZATION,    // Реализация
+    READY,          // Готов к выдаче
+    SHIPPED,        // Отгружен
+    CANCELLED;      // Отменен
+
+    fun getDisplayName(): String {
+        return when (this) {
+            NEW -> "Новый"
+            IN_PROGRESS -> "В работе"
+            COMPLETED -> "Завершен"
+            REALIZATION -> "Реализация"
+            READY -> "Готов к выдаче"
+            SHIPPED -> "Отгружен"
+            CANCELLED -> "Отменен"
+        }
+    }
+
+    fun getIcon(): Int {
+        return when (this) {
+            NEW -> R.drawable.ic_status_new
+            IN_PROGRESS -> R.drawable.ic_status_in_progress
+            COMPLETED -> R.drawable.ic_status_completed
+            REALIZATION -> R.drawable.ic_status_realization
+            READY -> R.drawable.ic_status_ready
+            SHIPPED -> R.drawable.ic_status_shipped
+            CANCELLED -> R.drawable.ic_status_cancelled
+        }
+    }
+
+    fun getBackgroundColor(): Int {
+        return when (this) {
+            NEW -> R.color.status_new
+            IN_PROGRESS -> R.color.status_in_progress
+            COMPLETED -> R.color.status_completed
+            REALIZATION -> R.color.status_realization
+            READY -> R.color.status_ready
+            SHIPPED -> R.color.status_shipped
+            CANCELLED -> R.color.status_cancelled
+        }
+    }
 } 

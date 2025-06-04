@@ -27,12 +27,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.dmapp.R
 import com.example.dmapp.data.Order
 import com.example.dmapp.data.OrderStatus
 import java.io.File
@@ -41,7 +43,9 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun OrderItem(
     order: Order,
-    onOrderClick: () -> Unit,
+    onOrderClick: (Order) -> Unit,
+    onStatusChange: (Order, OrderStatus) -> Unit,
+    onDeleteOrder: (Order) -> Unit,
     modifier: Modifier = Modifier,
     onStatusUpdate: (() -> Unit)? = null,
     onPhotoClick: ((Order) -> Unit)? = null,
@@ -52,6 +56,10 @@ fun OrderItem(
         OrderStatus.NEW -> Color.White
         OrderStatus.IN_PROGRESS -> Color(0xFFE8F5E9) // Light Green
         OrderStatus.COMPLETED -> Color.White // Changed from Light Gray to White
+        OrderStatus.REALIZATION -> Color(0xFFE8F5E9) // Light Green
+        OrderStatus.READY -> Color(0xFFE8F5E9) // Light Green
+        OrderStatus.SHIPPED -> Color(0xFFE8F5E9) // Light Green
+        OrderStatus.CANCELLED -> Color(0xFFE8F5E9) // Light Green
     }
     
     // Проверяем, есть ли фото у заказа
@@ -61,7 +69,7 @@ fun OrderItem(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clickable(onClick = onOrderClick),
+            .clickable(onClick = { onOrderClick(order) }),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
         colors = CardDefaults.cardColors(containerColor = backgroundColor)
     ) {
@@ -102,19 +110,64 @@ fun OrderItem(
                     )
                     
                     // Статус заказа
-                    Text(
-                        text = when (order.status) {
-                            OrderStatus.NEW -> "Новый"
-                            OrderStatus.IN_PROGRESS -> "В работе"
-                            OrderStatus.COMPLETED -> "Завершен"
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = when (order.status) {
-                            OrderStatus.NEW -> MaterialTheme.colorScheme.primary
-                            OrderStatus.IN_PROGRESS -> Color(0xFF4CAF50) // Зеленый
-                            OrderStatus.COMPLETED -> MaterialTheme.colorScheme.onSurfaceVariant
-                        }
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(
+                                id = when (order.status) {
+                                    OrderStatus.NEW -> R.drawable.ic_status_new
+                                    OrderStatus.IN_PROGRESS -> R.drawable.ic_status_in_progress
+                                    OrderStatus.COMPLETED -> R.drawable.ic_status_completed
+                                    OrderStatus.REALIZATION -> R.drawable.ic_status_realization
+                                    OrderStatus.READY -> R.drawable.ic_status_ready
+                                    OrderStatus.SHIPPED -> R.drawable.ic_status_shipped
+                                    OrderStatus.CANCELLED -> R.drawable.ic_status_cancelled
+                                }
+                            ),
+                            contentDescription = when (order.status) {
+                                OrderStatus.NEW -> "Новый"
+                                OrderStatus.IN_PROGRESS -> "В работе"
+                                OrderStatus.COMPLETED -> "Завершен"
+                                OrderStatus.REALIZATION -> "Реализация"
+                                OrderStatus.READY -> "Готов к выдаче"
+                                OrderStatus.SHIPPED -> "Отгружен"
+                                OrderStatus.CANCELLED -> "Отменен"
+                            },
+                            tint = when (order.status) {
+                                OrderStatus.NEW -> Color(0xFF2196F3)
+                                OrderStatus.IN_PROGRESS -> Color(0xFFFFA000)
+                                OrderStatus.COMPLETED -> Color(0xFF4CAF50)
+                                OrderStatus.REALIZATION -> Color(0xFFFF0000)
+                                OrderStatus.READY -> Color(0xFF4CAF50)
+                                OrderStatus.SHIPPED -> Color(0xFF2196F3)
+                                OrderStatus.CANCELLED -> Color(0xFFF44336)
+                            },
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = when (order.status) {
+                                OrderStatus.NEW -> "Новый"
+                                OrderStatus.IN_PROGRESS -> "В работе"
+                                OrderStatus.COMPLETED -> "Завершен"
+                                OrderStatus.REALIZATION -> "Реализация"
+                                OrderStatus.READY -> "Готов к выдаче"
+                                OrderStatus.SHIPPED -> "Отгружен"
+                                OrderStatus.CANCELLED -> "Отменен"
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = when (order.status) {
+                                OrderStatus.NEW -> Color(0xFF2196F3)
+                                OrderStatus.IN_PROGRESS -> Color(0xFFFFA000)
+                                OrderStatus.COMPLETED -> Color(0xFF4CAF50)
+                                OrderStatus.REALIZATION -> Color(0xFFFF0000)
+                                OrderStatus.READY -> Color(0xFF4CAF50)
+                                OrderStatus.SHIPPED -> Color(0xFF2196F3)
+                                OrderStatus.CANCELLED -> Color(0xFFF44336)
+                            }
+                        )
+                    }
                 }
                 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -254,7 +307,7 @@ fun OrderItem(
                         ) {
                             // Используем кастомную иконку для WhatsApp
                             Icon(
-                                painter = androidx.compose.ui.res.painterResource(id = com.example.dmapp.R.drawable.ic_whatsapp),
+                                painter = painterResource(id = R.drawable.ic_whatsapp),
                                 contentDescription = "Написать в WhatsApp",
                                 tint = Color.Unspecified // Не тонируем, так как иконка уже имеет нужный цвет
                             )
@@ -368,20 +421,30 @@ fun OrderItem(
                         )
                     }
                     
-                    // Добавляем кнопку изменения статуса заказа, если передан обработчик
-                    onStatusUpdate?.let {
+                    // Кнопки действий
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Кнопка изменения статуса
                         IconButton(
-                            onClick = it
+                            onClick = { onStatusChange(order, OrderStatus.COMPLETED) }
                         ) {
                             Icon(
-                                imageVector = when (order.status) {
-                                    OrderStatus.COMPLETED -> Icons.Default.Refresh  // Для возврата в активные
-                                    else -> Icons.Default.Done                     // Для отметки как выполненный
-                                },
-                                contentDescription = if (order.status == OrderStatus.COMPLETED) 
-                                    "Вернуть в активные" else "Отметить как выполненный",
-                                tint = if (order.status == OrderStatus.COMPLETED) 
-                                    Color(0xFF2196F3) else Color(0xFF4CAF50)
+                                imageVector = Icons.Default.Done,
+                                contentDescription = "Отметить как выполненный",
+                                tint = Color(0xFF4CAF50)
+                            )
+                        }
+                        
+                        // Кнопка удаления
+                        IconButton(
+                            onClick = { onDeleteOrder(order) }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Удалить заказ",
+                                tint = Color(0xFF9C27B0) // Светло-фиолетовый цвет
                             )
                         }
                     }

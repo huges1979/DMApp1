@@ -25,6 +25,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.dmapp.data.DailyStatistics
 import com.example.dmapp.data.Order
+import com.example.dmapp.data.OrderRepository
+import com.example.dmapp.data.OrderStatus
 import com.example.dmapp.data.Statistics
 import com.example.dmapp.ui.OrderViewModel
 import com.example.dmapp.ui.components.OrderItem
@@ -36,6 +38,7 @@ import java.util.Calendar
 import android.app.DatePickerDialog
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavController
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,7 +49,8 @@ fun StatisticsScreen(
     onClearStatistics: () -> Unit = {},
     onOrderClick: (Order) -> Unit,
     viewModel: OrderViewModel,
-    navController: NavController
+    navController: NavController,
+    orderRepository: OrderRepository
 ) {
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     var showClearConfirmDialog by remember { mutableStateOf(false) }
@@ -54,6 +58,8 @@ fun StatisticsScreen(
     val completedOrdersForDate by viewModel.completedOrdersForDate.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val loadError by viewModel.loadError.collectAsState()
+    val scope = rememberCoroutineScope()
+    var orderToDelete by remember { mutableStateOf<Order?>(null) }
     
     // Форматтеры для дат
     val shortDateFormatter = DateTimeFormatter.ofPattern("dd.MM")
@@ -228,7 +234,23 @@ fun StatisticsScreen(
                                 OrderItem(
                                     order = order,
                                     onOrderClick = { onOrderClick(order) },
+                                    onStatusChange = { updatedOrder, newStatus ->
+                                        scope.launch {
+                                            orderRepository.updateOrderStatus(updatedOrder, newStatus)
+                                        }
+                                    },
+                                    onDeleteOrder = { orderToDelete = it },
                                     modifier = Modifier.fillMaxWidth(),
+                                    onStatusUpdate = {
+                                        scope.launch {
+                                            val newStatus = if (order.status == OrderStatus.COMPLETED) {
+                                                OrderStatus.NEW
+                                            } else {
+                                                OrderStatus.COMPLETED
+                                            }
+                                            orderRepository.updateOrderStatus(order, newStatus)
+                                        }
+                                    },
                                     onPhotoViewClick = { photoUri ->
                                         // Сохраняем URI фото и переходим на экран просмотра
                                         navController.currentBackStackEntry?.savedStateHandle?.set("photo_uri", photoUri.toString())
@@ -307,6 +329,34 @@ fun StatisticsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showClearDateConfirmDialog = false }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
+
+    // Диалог подтверждения удаления
+    if (orderToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { orderToDelete = null },
+            title = { Text("Удаление заказа") },
+            text = { Text("Вы уверены, что хотите удалить заказ №${orderToDelete?.orderNumber}? Это действие нельзя отменить.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        orderToDelete?.let { order ->
+                            scope.launch {
+                                orderRepository.deleteOrder(order.id)
+                                orderToDelete = null
+                            }
+                        }
+                    }
+                ) {
+                    Text("Удалить", color = Color.Red)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { orderToDelete = null }) {
                     Text("Отмена")
                 }
             }
