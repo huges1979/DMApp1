@@ -6,17 +6,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.FileUpload
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -26,21 +18,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.example.dmapp.data.AppDatabase
-import com.example.dmapp.data.Order
-import com.example.dmapp.data.OrderRepository
-import com.example.dmapp.data.OrderStatus
-import com.example.dmapp.data.ImportResult
-import com.example.dmapp.data.StatisticsRepository
+import com.example.dmapp.data.*
 import com.example.dmapp.ui.OrderViewModel
 import com.example.dmapp.ui.components.ImportDialog
-import com.example.dmapp.ui.components.OrdersList
-import com.example.dmapp.ui.screens.MainScreen
-import com.example.dmapp.ui.screens.MapScreen
-import com.example.dmapp.ui.screens.OrderDetailScreen
-import com.example.dmapp.ui.screens.StatisticsScreen
-import com.example.dmapp.ui.screens.PhotoCaptureScreen
-import com.example.dmapp.ui.screens.FullScreenPhotoViewer
+import com.example.dmapp.ui.screens.*
 import com.yandex.mapkit.MapKitFactory
 import com.yandex.mapkit.search.SearchFactory
 import kotlinx.coroutines.flow.StateFlow
@@ -110,7 +91,7 @@ class MainActivity : ComponentActivity() {
                             onClearCompleted = { viewModel.clearCompletedOrders() },
                             onImportDialogDismiss = { viewModel.clearImportResult() },
                             onDeleteResultDismiss = { viewModel.clearDeleteResult() },
-                            onStatusUpdate = { order, newStatus: OrderStatus ->
+                            onStatusUpdate = { order, newStatus ->
                                 viewModel.updateOrderStatus(order, newStatus)
                             },
                             onStatisticsClick = {
@@ -144,26 +125,19 @@ class MainActivity : ComponentActivity() {
                                     navController.popBackStack()
                                 },
                                 onEditOrder = { editedOrder ->
-                                    // Например, обновление статуса или заметок
                                     if (editedOrder.status != it.status) {
                                         viewModel.updateOrderStatus(editedOrder, editedOrder.status)
-                                        
-                                        // Закрываем экран только при изменении статуса
                                         navController.popBackStack()
                                     } else if (editedOrder.notes != it.notes) {
-                                        // При изменении заметок просто обновляем данные, но не закрываем экран
                                         viewModel.updateOrderNotes(editedOrder.id, editedOrder.notes ?: "")
-                                        // Обновляем сохраненный заказ в навигационном стеке
                                         navController.currentBackStackEntry?.savedStateHandle?.set("order", editedOrder)
                                     }
                                 },
                                 onTakePhoto = { orderToPhotograph ->
-                                    // Сохраняем заказ в навигационном стеке и переходим на экран фото
                                     navController.currentBackStackEntry?.savedStateHandle?.set("order_for_photo", orderToPhotograph)
                                     navController.navigate("photo_capture")
                                 },
                                 onViewPhoto = { photoUri ->
-                                    // Сохраняем URI фото и переходим на экран просмотра
                                     navController.currentBackStackEntry?.savedStateHandle?.set("photo_uri", photoUri.toString())
                                     navController.navigate("photo_viewer")
                                 }
@@ -204,7 +178,6 @@ class MainActivity : ComponentActivity() {
                                     navController.popBackStack()
                                 },
                                 onPhotoSaved = {
-                                    // После сохранения фото возвращаемся назад
                                     navController.popBackStack()
                                 }
                             )
@@ -239,7 +212,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Обработка событий навигации
                 LaunchedEffect(Unit) {
                     viewModel.navigationEvent.collect { event ->
                         when (event) {
@@ -251,7 +223,9 @@ class MainActivity : ComponentActivity() {
                                 navController.currentBackStackEntry?.savedStateHandle?.set("photo_uri", event.photoUri.toString())
                                 navController.navigate("photo_viewer")
                             }
-                            null -> {}
+                            else -> {
+                                // Handle any other navigation events if needed
+                            }
                         }
                     }
                 }
@@ -261,34 +235,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        try {
-            MapKitFactory.getInstance().onStart()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        MapKitFactory.getInstance().onStart()
     }
 
     override fun onStop() {
-        try {
-            MapKitFactory.getInstance().onStop()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        MapKitFactory.getInstance().onStop()
         super.onStop()
-    }
-
-    private fun getMarkerColor(order: Order): Int {
-        if (order.status == OrderStatus.IN_PROGRESS) {
-            return android.graphics.Color.rgb(144, 238, 144) // Light Green
-        }
-
-        val deliveryHour = order.deliveryTimeStart.hour
-        return when {
-            deliveryHour in 11..13 -> android.graphics.Color.rgb(135, 206, 235) // Sky Blue (11:00 - 14:00)
-            deliveryHour in 14..16 -> android.graphics.Color.rgb(255, 165, 0)   // Orange (14:00 - 17:00)
-            deliveryHour in 17..19 -> android.graphics.Color.RED                 // Red (17:00 - 20:00)
-            deliveryHour in 20..22 -> android.graphics.Color.rgb(148, 0, 211)   // Purple (20:00 - 23:00)
-            else -> android.graphics.Color.GRAY
-        }
     }
 }

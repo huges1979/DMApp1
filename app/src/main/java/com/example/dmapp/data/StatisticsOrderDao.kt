@@ -91,10 +91,10 @@ interface StatisticsOrderDao {
     suspend fun getOrdersForDateInternal(dateString: String): List<StatisticsOrder>
 
     @Query("UPDATE statistics_orders SET photoUri = :photoUri WHERE id = :orderId")
-    suspend fun updateOrderPhoto(orderId: Long, photoUri: String?)
+    suspend fun updateOrderPhoto(orderId: Long, photoUri: String?): Int
 
     @Query("UPDATE statistics_orders SET photoDateTime = :photoDateTime WHERE id = :orderId")
-    suspend fun updateOrderPhotoDateTime(orderId: Long, photoDateTime: LocalDateTime?)
+    suspend fun updateOrderPhotoDateTime(orderId: Long, photoDateTime: LocalDateTime?): Int
 
     @Query("DELETE FROM statistics_orders WHERE date(completionDate) = :dateString")
     suspend fun deleteOrdersForDate(dateString: String) {
@@ -104,7 +104,7 @@ interface StatisticsOrderDao {
     }
 
     @Query("DELETE FROM statistics_orders WHERE date(completionDate) = :dateString")
-    suspend fun deleteOrdersForDateInternal(dateString: String)
+    suspend fun deleteOrdersForDateInternal(dateString: String): Int
 
     @Query("DELETE FROM statistics_orders")
     suspend fun deleteAllOrders() {
@@ -114,5 +114,5 @@ interface StatisticsOrderDao {
     }
 
     @Query("DELETE FROM statistics_orders")
-    suspend fun deleteAllOrdersInternal()
+    suspend fun deleteAllOrdersInternal(): Int
 } 

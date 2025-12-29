@@ -19,9 +19,9 @@ interface OrderDao {
     suspend fun getAllCompletedOrdersForStatistics(): List<Order> {
         println("OrderDao.getAllCompletedOrdersForStatistics: Запрос выполненных заказов")
         val orders = getAllCompletedOrders()
-        println("OrderDao.getAllCompletedOrdersForStatistics: Получено ${orders.size} выполненных заказов")
+        println("OrderDao.getAllCompletedOrdersForStatistics: Получено "+orders.size+" выполненных заказов")
         if (orders.isNotEmpty()) {
-            println("Первый заказ: номер=${orders[0].orderNumber}, статус=${orders[0].status}, isCompleted=${orders[0].isCompleted}")
+            println("Первый заказ: номер="+orders[0].orderNumber+", статус="+orders[0].status+", isCompleted="+orders[0].isCompleted)
         }
         return orders
     }
@@ -47,11 +47,11 @@ interface OrderDao {
     @Query("SELECT * FROM orders WHERE externalOrderNumber = :number LIMIT 1")
     suspend fun findDuplicateOrderInternal(number: String): Order?
 
-    @Insert
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(order: Order): Long
 
-    @Update
-    suspend fun update(order: Order)
+    @Update(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun update(order: Order): Int
 
     @Query("DELETE FROM orders WHERE status = 'COMPLETED'")
     suspend fun deleteCompletedOrders(): Int
@@ -63,17 +63,18 @@ interface OrderDao {
     suspend fun findOrderById(orderId: Long): Order?
 
     @Query("UPDATE orders SET notes = :notes WHERE id = :orderId")
-    suspend fun updateOrderNotes(orderId: Long, notes: String)
+    suspend fun updateOrderNotes(orderId: Long, notes: String): Int
     
     @Query("UPDATE orders SET latitude = :latitude, longitude = :longitude WHERE id = :orderId")
-    suspend fun updateOrderCoordinates(orderId: Long, latitude: Double, longitude: Double)
+    suspend fun updateOrderCoordinates(orderId: Long, latitude: Double, longitude: Double): Int
 
     @Query("UPDATE orders SET photoUri = :photoUri WHERE id = :orderId")
-    suspend fun updateOrderPhoto(orderId: Long, photoUri: String?) {
+    suspend fun updateOrderPhoto(orderId: Long, photoUri: String?): Int {
         println("OrderDao.updateOrderPhoto: Updating photo for order $orderId with URI: $photoUri")
         try {
-            updateOrderPhotoInternal(orderId, photoUri)
+            val result = updateOrderPhotoInternal(orderId, photoUri)
             println("OrderDao.updateOrderPhoto: Successfully updated photo for order $orderId")
+            return result
         } catch (e: Exception) {
             println("OrderDao.updateOrderPhoto: Error updating photo for order $orderId: ${e.message}")
             throw e
@@ -81,14 +82,15 @@ interface OrderDao {
     }
 
     @Query("UPDATE orders SET photoUri = :photoUri WHERE id = :orderId")
-    suspend fun updateOrderPhotoInternal(orderId: Long, photoUri: String?)
+    suspend fun updateOrderPhotoInternal(orderId: Long, photoUri: String?): Int
 
     @Query("UPDATE orders SET photoDateTime = :photoDateTime WHERE id = :orderId")
-    suspend fun updateOrderPhotoDateTime(orderId: Long, photoDateTime: LocalDateTime?) {
+    suspend fun updateOrderPhotoDateTime(orderId: Long, photoDateTime: LocalDateTime?): Int {
         println("OrderDao.updateOrderPhotoDateTime: Updating photo datetime for order $orderId with value: $photoDateTime")
         try {
-            updateOrderPhotoDateTimeInternal(orderId, photoDateTime)
+            val result = updateOrderPhotoDateTimeInternal(orderId, photoDateTime)
             println("OrderDao.updateOrderPhotoDateTime: Successfully updated photo datetime for order $orderId")
+            return result
         } catch (e: Exception) {
             println("OrderDao.updateOrderPhotoDateTime: Error updating photo datetime for order $orderId: ${e.message}")
             throw e
@@ -96,8 +98,8 @@ interface OrderDao {
     }
 
     @Query("UPDATE orders SET photoDateTime = :photoDateTime WHERE id = :orderId")
-    suspend fun updateOrderPhotoDateTimeInternal(orderId: Long, photoDateTime: LocalDateTime?)
+    suspend fun updateOrderPhotoDateTimeInternal(orderId: Long, photoDateTime: LocalDateTime?): Int
 
     @Query("DELETE FROM orders WHERE id = :orderId")
-    suspend fun deleteOrderById(orderId: Long)
+    suspend fun deleteOrderById(orderId: Long): Int
 } 

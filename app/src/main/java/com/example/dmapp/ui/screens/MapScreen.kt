@@ -1468,14 +1468,24 @@ fun MapScreen(
                     modifier = Modifier.align(Alignment.BottomCenter)
                 ) {
                     val cardColor = if (currentOrder.status == OrderStatus.IN_PROGRESS) ComposeColor(0xFFE8F5E9) else ComposeColor.White
+                    val borderWidth = when (currentOrder.status) {
+                        OrderStatus.IN_PROGRESS -> 1.5.dp
+                        OrderStatus.NEW -> 1.dp
+                        else -> 0.dp
+                    }
+                    val borderColor = when (currentOrder.status) {
+                        OrderStatus.IN_PROGRESS -> ComposeColor(0xFF81C784) // Зелёная для "В работе"
+                        OrderStatus.NEW -> ComposeColor.Black // Чёрная для "Новый"
+                        else -> ComposeColor.Transparent
+                    }
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(start = 16.dp, end = 16.dp, bottom = 32.dp)
                             .clickable { isExpanded = true }
                             .border(
-                                width = if (currentOrder.status == OrderStatus.IN_PROGRESS) 3.dp else 0.dp,
-                                color = if (currentOrder.status == OrderStatus.IN_PROGRESS) ComposeColor(0xFF81C784) else ComposeColor.Transparent,
+                                width = borderWidth,
+                                color = borderColor,
                                 shape = MaterialTheme.shapes.medium
                             ),
                         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
@@ -1548,10 +1558,31 @@ fun MapScreen(
                     modifier = Modifier.align(Alignment.BottomCenter)
                 ) {
                     val cardColor = if (currentOrder.status == OrderStatus.IN_PROGRESS) ComposeColor(0xFFE8F5E9) else ComposeColor.White
+                    val borderWidth = when (currentOrder.status) {
+                        OrderStatus.IN_PROGRESS -> 1.5.dp
+                        OrderStatus.NEW -> 1.dp
+                        else -> 0.dp
+                    }
+                    val borderColor = when (currentOrder.status) {
+                        OrderStatus.IN_PROGRESS -> ComposeColor(0xFF81C784) // Зелёная для "В работе"
+                        OrderStatus.NEW -> ComposeColor.Black // Чёрная для "Новый"
+                        else -> ComposeColor.Transparent
+                    }
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 8.dp, end = 8.dp, bottom = 16.dp),
+                            .padding(start = 8.dp, end = 8.dp, bottom = 16.dp)
+                            .then(
+                                if (borderWidth > 0.dp) {
+                                    Modifier.border(
+                                        width = borderWidth,
+                                        color = borderColor,
+                                        shape = MaterialTheme.shapes.medium
+                                    )
+                                } else {
+                                    Modifier
+                                }
+                            ),
                         elevation = CardDefaults.cardElevation(defaultElevation = 12.dp),
                         colors = CardDefaults.cardColors(containerColor = cardColor)
                     ) {

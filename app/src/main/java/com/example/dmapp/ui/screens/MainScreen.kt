@@ -221,12 +221,15 @@ fun MainScreen(
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = MaterialTheme.colorScheme.primary
                                 ),
-                                modifier = Modifier.padding(end = 8.dp)
+                                modifier = Modifier
+                                    .padding(end = 8.dp)
+                                    .height(36.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                             ) {
                                 Text(
                                     text = "Map",
                                     color = Color.White,
-                                    style = MaterialTheme.typography.labelLarge
+                                    style = MaterialTheme.typography.labelSmall
                                 )
                             }
                             IconButton(onClick = onImportClick) {
@@ -276,8 +279,15 @@ fun MainScreen(
                         Text("Статус:", style = MaterialTheme.typography.bodyLarge)
                         Spacer(modifier = Modifier.width(8.dp))
                         Box {
-                            Button(onClick = { expandedActive = true }) {
-                                Text(selectedActiveStatus?.getDisplayName() ?: "Все")
+                            Button(
+                                onClick = { expandedActive = true },
+                                modifier = Modifier.height(36.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    selectedActiveStatus?.getDisplayName() ?: "Все",
+                                    style = MaterialTheme.typography.labelSmall
+                                )
                             }
                             DropdownMenu(
                                 expanded = expandedActive,
@@ -312,8 +322,15 @@ fun MainScreen(
                         Text("Статус:", style = MaterialTheme.typography.bodyLarge)
                         Spacer(modifier = Modifier.width(8.dp))
                         Box {
-                            Button(onClick = { expandedCompleted = true }) {
-                                Text(selectedCompletedStatus?.getDisplayName() ?: "Все")
+                            Button(
+                                onClick = { expandedCompleted = true },
+                                modifier = Modifier.height(36.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    selectedCompletedStatus?.getDisplayName() ?: "Все",
+                                    style = MaterialTheme.typography.labelSmall
+                                )
                             }
                             DropdownMenu(
                                 expanded = expandedCompleted,

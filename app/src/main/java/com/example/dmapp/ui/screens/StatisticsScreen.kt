@@ -87,7 +87,7 @@ fun StatisticsScreen(
         while (!currentDate.isAfter(end)) {
             val dayStats = statistics.getStatsForDay(currentDate)
             if (dayStats != null) {
-                totalSalary += dayStats.completedOrders * 221.54 // Ставка за заказ
+                totalSalary += dayStats.completedOrders * 242.0 // Ставка за заказ (обновлено на 242 ₽)
             }
             currentDate = currentDate.plusDays(1)
         }
@@ -183,7 +183,7 @@ fun StatisticsScreen(
                             // Карточка с заработком
                             StatCard(
                                 title = "Заработано",
-                                value = String.format("%.2f ₽", dateStats.completedOrders * 221.54),
+                                value = String.format("%.2f ₽", dateStats.completedOrders * 242.0),
                                 backgroundColor = Color(0xFFE5FFE5) // Светло-зеленый цвет
                             )
                         }

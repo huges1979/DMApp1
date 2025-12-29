@@ -45,7 +45,9 @@ fun OrderDetailScreen(
                 title = { 
                     Text(
                         text = buildAnnotatedString {
-                            append("${currentOrder.orderNumber} Заказ ")
+                            append("${currentOrder.orderNumber}.")
+                            append("  ") // Расстояние перед словом "Заказ" (2 пробела)
+                            append("Заказ ")
                             val externalNumber = currentOrder.externalOrderNumber
                             if (externalNumber.length >= 4) {
                                 val mainPart = externalNumber.substring(0, externalNumber.length - 4)

@@ -73,9 +73,9 @@ fun OrderDetailsContent(
             android.widget.Toast.LENGTH_SHORT
         ).show()
         
-        // Открываем сайт курьера
+        // Открываем сайт курьера (обновлённый адрес kcourier)
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(
-            "https://courier.detmir.ru/?settings=eyJDbGVhbiI6dHJ1ZSwiQ2FzaFdlYkJhc2VVcmwiOiJodHRwOi8vMTcyLjE2LjQ0LjExNyIsIlNob3dJbnN0YWxsTWVzc2FnZSI6ZmFsc2UsIkN1cnJlbmN5U3ltYm9sIjoiXHUyMEJEIiwiT3JkZXJBY2Nlc3NDb2RlVGltZW91dCI6MzAsIkRlZmF1bHRPcmRlcklkUHJlZml4IjoiU1NTU1MiLCJBbGxvd0RlbGV0ZU9ubHlLbVByb2R1Y3QiOnRydWV9"
+            "https://kcourier.detmir.ru/?settings=eyJDbGVhbiI6dHJ1ZSwiQ2FzaFdlYkJhc2VVcmwiOiJodHRwOi8vMTcyLjE2LjQ0LjExNzo4ODgiLCJTaG93SW5zdGFsbE1lc3NhZ2UiOmZhbHNlLCJDdXJyZW5jeVN5bWJvbCI6Ilx1MjBCRCIsIk9yZGVyQWNjZXNzQ29kZVRpbWVvdXQiOjMwLCJEZWZhdWx0T3JkZXJJZFByZWZpeCI6IlNTU1NTIiwiQWxsb3dEZWxldGVPbmx5S21Qcm9kdWN0Ijp0cnVlLCJPcmRlcklkVXBwZXJDYXNlIjp0cnVlLCJVc2VyTmFtZVBhdHRlcm4iOiJeMDAxMDIwMjIwezEsfVxcZHsxLH0kIiwiT3JkZXJJZFBhdHRlcm4iOiJeKFxcRCopKFxcZFx1MDAyQikkIn0="
         ))
         context.startActivity(intent)
     }
@@ -243,6 +243,36 @@ fun OrderDetailsContent(
                             tint = Color.Unspecified // Не тонируем, так как иконка уже имеет нужный цвет
                         )
                     }
+                    
+                    // Иконка для Telegram
+                    IconButton(
+                        onClick = {
+                            val phoneNumber = order.clientPhone.replace(Regex("[^0-9+]"), "")
+                            // Формируем номер в формате +1234567890
+                            val formattedNumber = if (phoneNumber.startsWith("+")) phoneNumber else "+$phoneNumber"
+                            try {
+                                // Пытаемся открыть Telegram приложение
+                                val intent = Intent(Intent.ACTION_VIEW).apply {
+                                    data = Uri.parse("tg://resolve?phone=$formattedNumber")
+                                }
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                // Если Telegram не установлен, открываем веб-версию
+                                val webIntent = Intent(Intent.ACTION_VIEW).apply {
+                                    data = Uri.parse("https://t.me/+$formattedNumber")
+                                }
+                                context.startActivity(webIntent)
+                            }
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        // Используем кастомную иконку для Telegram
+                        Icon(
+                            painter = androidx.compose.ui.res.painterResource(id = com.example.dmapp.R.drawable.ic_telegram),
+                            contentDescription = "Написать в Telegram",
+                            tint = Color.Unspecified // Не тонируем, так как иконка уже имеет нужный цвет
+                        )
+                    }
                 }
             }
         }
@@ -314,46 +344,6 @@ fun OrderDetailsContent(
                     else 
                         MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            }
-        }
-        
-        // Инструкции по доставке
-        Spacer(modifier = Modifier.height(24.dp))
-        
-        Text(
-            text = "Инструкции по доставке",
-            style = MaterialTheme.typography.titleMedium,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold
-        )
-        
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
-            )
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                Text(
-                    text = order.clientComment ?: "Особых инструкций нет",
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontSize = 16.sp
-                )
-                
-                if (order.clientComment.isNullOrBlank()) {
-                    Text(
-                        text = "• Позвоните клиенту за 15-20 минут до прибытия\n• Проверьте комплектность заказа перед вручением\n• Будьте вежливы и приветливы",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontSize = 16.sp,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                }
             }
         }
         
@@ -493,6 +483,88 @@ fun OrderDetailsContent(
                     Icon(
                         painter = androidx.compose.ui.res.painterResource(id = com.example.dmapp.R.drawable.ic_whatsapp),
                         contentDescription = "Отправить в WhatsApp",
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+                
+                // Кнопка Telegram для отправки фото
+                IconButton(
+                    onClick = {
+                        try {
+                            bitmap?.let { photoBitmap ->
+                                // Копируем фото в буфер обмена
+                                val clipboardManager = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                
+                                // Создаем временный файл для фото
+                                val tempFile = File.createTempFile("photo_", ".jpg", context.cacheDir)
+                                val outputStream = FileOutputStream(tempFile)
+                                photoBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 100, outputStream)
+                                outputStream.close()
+                                
+                                // Создаем URI для файла
+                                val photoUri = FileProvider.getUriForFile(
+                                    context,
+                                    "com.example.dmapp.fileprovider",
+                                    tempFile
+                                )
+                                
+                                // Копируем фото в буфер обмена
+                                val clip = android.content.ClipData.newUri(
+                                    context.contentResolver,
+                                    "Фото заказа",
+                                    photoUri
+                                )
+                                clipboardManager.setPrimaryClip(clip)
+                                
+                                // Показываем уведомление
+                                Toast.makeText(
+                                    context,
+                                    "Фото скопировано в буфер обмена",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                                
+                                // Формируем номер телефона
+                                val phoneNumber = order.clientPhone.replace(Regex("[^0-9+]"), "")
+                                val formattedNumber = if (phoneNumber.startsWith("+")) phoneNumber else "+$phoneNumber"
+                                
+                                // Открываем Telegram с чатом по номеру телефона
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                                        data = Uri.parse("tg://resolve?phone=$formattedNumber")
+                                    }
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    // Если Telegram не установлен, открываем веб-версию
+                                    try {
+                                        val webIntent = Intent(Intent.ACTION_VIEW).apply {
+                                            data = Uri.parse("https://t.me/+$formattedNumber")
+                                        }
+                                        context.startActivity(webIntent)
+                                    } catch (e2: Exception) {
+                                        Toast.makeText(
+                                            context,
+                                            "Telegram не установлен",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Toast.makeText(
+                                context,
+                                "Ошибка при подготовке фото",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    },
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .size(48.dp)
+                ) {
+                    Icon(
+                        painter = androidx.compose.ui.res.painterResource(id = com.example.dmapp.R.drawable.ic_telegram),
+                        contentDescription = "Отправить фото в Telegram",
                         tint = Color.Unspecified,
                         modifier = Modifier.size(32.dp)
                     )

@@ -1,3 +1,6 @@
+// ВРЕМЕННО УДАЛЕНО ДЛЯ СБРОСА ROOM
+// package com.example.dmapp.data
+
 package com.example.dmapp.data
 
 import android.os.Parcelable

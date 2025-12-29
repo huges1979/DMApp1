@@ -2,7 +2,6 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.compose)
-    id("com.google.devtools.ksp") version "1.9.0-1.0.13"
     id("kotlin-parcelize")
 }
 
@@ -35,11 +34,11 @@ android {
     }
     
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "17"
     }
     buildFeatures {
         compose = true
@@ -63,7 +62,7 @@ dependencies {
     // Room dependencies
     val room_version = "2.6.1"
     implementation("androidx.room:room-runtime:$room_version")
-    ksp("androidx.room:room-compiler:$room_version")
+    kapt("androidx.room:room-compiler:$room_version")
     implementation("androidx.room:room-ktx:$room_version")
     
     // Navigation
@@ -90,6 +89,9 @@ dependencies {
     
     // Gson для сериализации/десериализации JSON
     implementation("com.google.code.gson:gson:2.10.1")
+    
+    // Kotlin
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.23")
     
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

@@ -88,7 +88,9 @@ fun OrderItem(
                 ) {
                     Text(
                         text = buildAnnotatedString {
-                            append("${order.orderNumber} Заказ ")
+                            append("${order.orderNumber}.")
+                            append("  ") // Расстояние перед словом "Заказ" (2 пробела)
+                            append("Заказ ")
                             val externalNumber = order.externalOrderNumber
                             if (externalNumber.length >= 4) {
                                 val mainPart = externalNumber.substring(0, externalNumber.length - 4)
@@ -105,7 +107,8 @@ fun OrderItem(
                                 append(externalNumber)
                             }
                         },
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontSize = 18.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -156,7 +159,8 @@ fun OrderItem(
                                 OrderStatus.SHIPPED -> "Отгружен"
                                 OrderStatus.CANCELLED -> "Отменен"
                             },
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 13.sp,
                             color = when (order.status) {
                                 OrderStatus.NEW -> Color(0xFF2196F3)
                                 OrderStatus.IN_PROGRESS -> Color(0xFF4CAF50) // Зеленый цвет для статуса "В работе"
@@ -181,8 +185,8 @@ fun OrderItem(
                     Text(
                         text = "Доставка: ${order.deliveryTimeStart.format(DateTimeFormatter.ofPattern("HH:mm"))} - " +
                                 order.deliveryTimeEnd.format(DateTimeFormatter.ofPattern("HH:mm")),
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontSize = 18.sp
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontSize = 15.sp
                     )
                     
                     // Иконка фотоаппарата для заказов с фото
@@ -205,8 +209,8 @@ fun OrderItem(
                 ) {
                     Text(
                         text = order.deliveryAddress,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontSize = 18.sp,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontSize = 15.sp,
                         color = Color.Black,
                         modifier = Modifier.weight(1f)
                     )
@@ -256,8 +260,8 @@ fun OrderItem(
                 ) {
                     Text(
                         text = "${order.clientName} • ${order.clientPhone}",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontSize = 18.sp,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontSize = 15.sp,
                         color = Color.Black,
                         modifier = Modifier.weight(1f)
                     )
@@ -312,6 +316,35 @@ fun OrderItem(
                                 tint = Color.Unspecified // Не тонируем, так как иконка уже имеет нужный цвет
                             )
                         }
+                        
+                        // Иконка для Telegram
+                        IconButton(
+                            onClick = {
+                                val phoneNumber = order.clientPhone.replace(Regex("[^0-9+]"), "")
+                                // Формируем номер в формате +1234567890
+                                val formattedNumber = if (phoneNumber.startsWith("+")) phoneNumber else "+$phoneNumber"
+                                try {
+                                    // Пытаемся открыть Telegram приложение
+                                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                                        data = Uri.parse("tg://resolve?phone=$formattedNumber")
+                                    }
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    // Если Telegram не установлен, открываем веб-версию
+                                    val webIntent = Intent(Intent.ACTION_VIEW).apply {
+                                        data = Uri.parse("https://t.me/+$formattedNumber")
+                                    }
+                                    context.startActivity(webIntent)
+                                }
+                            }
+                        ) {
+                            // Используем кастомную иконку для Telegram
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_telegram),
+                                contentDescription = "Написать в Telegram",
+                                tint = Color.Unspecified // Не тонируем, так как иконка уже имеет нужный цвет
+                            )
+                        }
                     }
                 }
                 
@@ -320,8 +353,8 @@ fun OrderItem(
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "📝 ${order.notes}",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontSize = 16.sp,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
@@ -400,7 +433,8 @@ fun OrderItem(
                         // Вес заказа
                         Text(
                             text = "${order.weight} кг",
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 14.sp,
                             color = Color.Black
                         )
                     }
@@ -416,7 +450,8 @@ fun OrderItem(
                     if (onPhotoClick == null) {
                         Text(
                             text = "${order.weight} кг",
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 14.sp,
                             color = Color.Black
                         )
                     }
@@ -451,7 +486,8 @@ fun OrderItem(
                     
                     Text(
                         text = "${order.orderAmount} ₽",
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.Black
                     )

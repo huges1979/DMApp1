@@ -249,47 +249,33 @@ class StatisticsRepository(private val context: Context) {
                 weight = order.weight,
                 orderAmount = order.orderAmount,
                 completionDate = completionDate,
-                photoUri = order.photoUri, // Сохраняем информацию о фото
-                photoDateTime = order.photoDateTime // Сохраняем дату и время фото
+                photoUri = order.photoUri,
+                photoDateTime = order.photoDateTime
             )
             statisticsOrderDao.updateOrder(updatedOrder)
             println("Заказ обновлен в статистике")
-            return
+        } else {
+            println("Создаем новую запись в статистике для заказа ${order.externalOrderNumber}")
+            // Создаем новую запись в статистике
+            val statisticsOrder = StatisticsOrder(
+                orderNumber = order.orderNumber,
+                externalOrderNumber = order.externalOrderNumber,
+                deliveryAddress = order.deliveryAddress,
+                clientName = order.clientName,
+                clientPhone = order.clientPhone,
+                deliveryTimeStart = order.deliveryTimeStart,
+                deliveryTimeEnd = order.deliveryTimeEnd,
+                weight = order.weight,
+                orderAmount = order.orderAmount,
+                completionDate = completionDate,
+                photoUri = order.photoUri,
+                photoDateTime = order.photoDateTime
+            )
+            statisticsOrderDao.insert(statisticsOrder)
+            println("Заказ сохранен в статистике")
         }
         
-        println("Создаем запись в статистике для заказа №${order.orderNumber} (внешний №${order.externalOrderNumber}) за ${dateString}")
-        
-        // Создаем запись в статистике
-        val statisticsOrder = StatisticsOrder(
-            orderNumber = order.orderNumber,
-            externalOrderNumber = order.externalOrderNumber,
-            deliveryAddress = order.deliveryAddress,
-            clientName = order.clientName,
-            clientPhone = order.clientPhone,
-            deliveryTimeStart = order.deliveryTimeStart,
-            deliveryTimeEnd = order.deliveryTimeEnd,
-            weight = order.weight,
-            orderAmount = order.orderAmount,
-            completionDate = completionDate,
-            photoUri = order.photoUri, // Сохраняем информацию о фото
-            photoDateTime = order.photoDateTime // Сохраняем дату и время фото
-        )
-        
-        println("Запись создана: ${statisticsOrder}")
-        
-        try {
-            // Сохраняем в базу данных
-            val id = statisticsOrderDao.insert(statisticsOrder)
-            println("Запись сохранена в базу данных с id: $id")
-            
-            // Не обновляем статистику здесь, так как это будет сделано в updateStatisticsFromCompletedOrders
-            println("Статистика будет обновлена в updateStatisticsFromCompletedOrders")
-        } catch (e: Exception) {
-            println("Ошибка при сохранении в статистику: ${e.message}")
-            e.printStackTrace()
-        }
-        
-        println("=== saveOrderToStatistics: Завершено ===\n")
+        println("=== saveOrderToStatistics: Заказ обработан ===\n")
     }
     
     /**

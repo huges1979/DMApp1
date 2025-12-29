@@ -1,3 +1,7 @@
+// ВРЕМЕННО УДАЛЕНО ДЛЯ СБРОСА ROOM
+// package com.example.dmapp.data
+// ... (весь остальной код закомментирован)
+
 package com.example.dmapp.data
 
 import android.content.Context
